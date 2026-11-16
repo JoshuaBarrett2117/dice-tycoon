@@ -1,0 +1,21 @@
+{
+  "name": "@dt/client",
+  "version": "0.1.0",
+  "description": "网页客户端：PixiJS 渲染棋盘 + DOM HUD，支持单机（机器人）与在线对战",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.0",
+    "@dt/shared": "*",
+    "pixi.js": "^8.10.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vite": "^7.0.0"
+  }
+}

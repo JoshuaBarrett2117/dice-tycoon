@@ -1,0 +1,11 @@
+# 《掷富天下》一键部署：docker compose up -d 后打开 http://<主机>:2567
+services:
+  dice-tycoon:
+    image: joshualoooooo/dice-tycoon:latest
+    container_name: dice-tycoon
+    restart: unless-stopped
+    ports:
+      - "2567:2567"        # 左边可改成任意空闲端口
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=2567

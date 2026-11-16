@@ -1,0 +1,26 @@
+{
+  "name": "@dt/server",
+  "version": "0.1.0",
+  "description": "对战服：Colyseus 房间，服务端权威，复用 @dt/shared 规则引擎",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --alias:@dt/shared=../../packages/shared/src/index.ts --outfile=dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "tsx scripts/smoke.ts",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --alias:@dt/shared=../../packages/shared/src/index.ts --banner:js=\"import{createRequire as __cr}from'module';const require=__cr(import.meta.url);\" --outfile=dist/bundle.mjs"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.18.0",
+    "@colyseus/ws-transport": "^0.18.0",
+    "@dt/shared": "*"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.0"
+  }
+}

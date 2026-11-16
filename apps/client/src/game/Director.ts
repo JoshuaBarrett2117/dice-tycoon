@@ -1,0 +1,404 @@
+/**
+ * 演出导演：把服务端（或本地引擎）发来的「快照 + 事件流」按顺序播成动画，
+ * 播完后以权威快照校正画面，再根据状态决定是否等待本地玩家输入。
+ */
+import {
+  BOARD, CHARACTERS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
+  controlOf, tollOf, totalAssets,
+  type GameEvent, type GameState, type Pending, type WinReason,
+} from '@dt/shared';
+import { AU } from '../audio/audio';
+import { sleep } from '../core/tween';
+import { GRAD, type Hud, type SheetSpec } from '../ui/Hud';
+import { CHAR_TEX, type World } from '../view/World';
+import { buildingAnchor, tokenAnchor } from '../view/iso';
+import type { GameSource, SyncMsg } from '../net/source';
+
+export const SEAT_COLORS = ['#e8352a', '#2a7fe8', '#16a34a', '#9333ea'];
+const LV_NAME = ['空地', '别墅', '公寓', '酒店', '地标'];
+const WIN_TEXT: Record<WinReason, string> = {
+  triple: '三区独占', line: '整排独占', tour: '观光地独占', bankrupt: '对手全部破产', assets: '回合结束 · 总资产最高',
+};
+const BANK: [number, number] = [640, 40];
+
+export class Director {
+  private vm: GameState | null = null;
+  private queue: SyncMsg[] = [];
+  private busy = false;
+  private latest: SyncMsg | null = null;
+  private preview: { destroy(): void }[] = [];
+
+  constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void) {
+    src.onSync((m) => {
+      this.hud.cancelInput();
+      this.queue.push(m);
+      void this.pump();
+    });
+  }
+
+  private get me() { return this.src.mySeat; }
+
+  private async pump() {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      while (this.queue.length) {
+        const m = this.queue.shift()!;
+        if (this.latest && m.state.seq < this.latest.state.seq) continue;
+        if (!this.vm) this.init(m.state);
+        for (const e of m.events) await this.play(e);
+        this.reconcile(m.state);
+        this.latest = m;
+        this.hud.setDeadline(m.deadline);
+      }
+    } finally {
+      this.busy = false;
+    }
+    if (this.latest && !this.queue.length) void this.input(this.latest);
+  }
+
+  // ───────────────────────── 初始化与校正 ─────────────────────────
+  private init(s: GameState) {
+    this.vm = structuredClone(s);
+    this.world.setPlayers(s.seats.map((_, i) => SEAT_COLORS[i]), s.seats.map((p) => p.charId));
+    this.world.buildBoard(s);
+    this.hud.setupPlayers(s.seats.map((p, i) => ({
+      name: p.name, charName: CHARACTERS[p.charId].name, color: SEAT_COLORS[i],
+      img: charUrl(p.charId), isMe: i === this.me,
+    })), s.seats.map((p) => p.cash));
+    this.hud.setRound(s.round, s.maxRounds);
+    this.layout(false);
+    s.seats.forEach((_, i) => this.hud.setProps(i, this.propsOf(s, i)));
+  }
+
+  private reconcile(s: GameState) {
+    const vm = this.vm!;
+    s.seats.forEach((p, i) => {
+      if (vm.seats[i].cash !== p.cash) this.hud.setCash(i, p.cash);
+      if (p.bankrupt) this.hud.setBankrupt(i);
+      this.hud.setProps(i, this.propsOf(s, i));
+    });
+    s.tiles.forEach((t, i) => {
+      const o = vm.tiles[i];
+      if (o.owner !== t.owner || o.lv !== t.lv) this.world.setBuilding(i, s, false);
+    });
+    this.vm = structuredClone(s);
+    this.redrawTiles();
+    this.layout(true);
+    this.hud.setRound(s.round, s.maxRounds);
+  }
+
+  private propsOf(s: GameState, seat: number) { return s.tiles.filter((t) => t.owner === seat).length; }
+  private layout(animate: boolean) {
+    const vm = this.vm!;
+    this.world.layoutAll(vm.seats.map((p) => p.pos), vm.seats.map((p) => !p.bankrupt), animate);
+  }
+  private redrawTiles() { BOARD.forEach((_, i) => this.world.drawTileTop(i, this.vm!)); }
+  private tokStage(seat: number): [number, number] {
+    const t = this.world.tokens[seat];
+    return this.world.toStage(t.x, t.y - 60);
+  }
+  private addCash(seat: number, d: number) {
+    const p = this.vm!.seats[seat];
+    p.cash += d;
+    this.hud.setCash(seat, p.cash);
+  }
+
+  // ───────────────────────── 事件演出 ─────────────────────────
+  private async play(e: GameEvent) {
+    const vm = this.vm!, W = this.world, H = this.hud;
+    switch (e.t) {
+      case 'turn': {
+        vm.turn = e.seat; vm.round = e.round;
+        H.setRound(e.round, vm.maxRounds);
+        W.tokens.forEach((t, i) => t.setActive(i === e.seat));
+        H.setTurn(e.seat, e.seat === this.me ? '轮到你' : '行动中…');
+        if (e.seat === this.me) { H.toast('轮到你了！', GRAD.gold); AU.play('turn'); }
+        else H.setRollWaiting(vm.seats[e.seat].name, SEAT_COLORS[e.seat], charUrl(vm.seats[e.seat].charId));
+        await W.camTo(0, 0, 1, 400);
+        await sleep(250);
+        break;
+      }
+      case 'roll': {
+        const z = ZONES[e.zone];
+        if (e.seat !== this.me) {
+          H.chipText(e.seat, `瞄准 ${z.lo}–${z.hi} · 控骰 ${Math.round(controlOf(vm.seats[e.seat]) * 100)}%`);
+          await sleep(350);
+        }
+        await H.rollDice(e.dice[0], e.dice[1]);
+        AU.play(e.hit ? 'hit' : 'miss');
+        H.toast(e.hit ? `命中 ${z.lo}–${z.hi} 区间！` : `偏离区间 · 掷出 ${e.dice[0] + e.dice[1]}`, e.hit ? GRAD.green : GRAD.gray);
+        H.chipText(e.seat, `前进 ${e.dice[0] + e.dice[1]} 步`);
+        await sleep(450);
+        break;
+      }
+      case 'doubles':
+        AU.play('double');
+        H.toast(e.count >= 3 ? '三连双数！被风暴卷走…' : '双数！可以再掷一次', GRAD.gold);
+        await sleep(650);
+        break;
+      case 'move': await this.playMove(e.seat, e.path, e.via); break;
+      case 'salary': {
+        AU.play('salary');
+        H.floatText(...this.tokStage(e.seat), `+¥${e.amount}万 月薪`, '#fff36b');
+        this.addCash(e.seat, e.amount);
+        await sleep(400);
+        break;
+      }
+      case 'island':
+        AU.play('island');
+        vm.seats[e.seat].islandTurns = e.turns;
+        H.toast(`漂流到无人岛 · 停留 ${e.turns} 回合（掷双数可逃脱）`, GRAD.blue);
+        await sleep(1000);
+        break;
+      case 'islandStay':
+        H.toast(e.left > 0 ? `还在无人岛 · 剩余 ${e.left} 回合` : '下回合离开无人岛', GRAD.blue);
+        await sleep(800);
+        break;
+      case 'islandEscape':
+        AU.play('hit');
+        H.toast('掷出双数，成功逃离无人岛！', GRAD.green);
+        await sleep(700);
+        break;
+      case 'pay': await this.playPay(e.from, e.to, e.amount, e.tile, e.reason); break;
+      case 'shieldUsed':
+        AU.play('card');
+        H.toast('免单券生效：本次过路费全免', GRAD.purple);
+        await sleep(800);
+        break;
+      case 'buy': {
+        AU.play('cash');
+        this.addCash(e.seat, -e.cost);
+        await H.coins(H.chipPos(e.seat), this.bldStage(e.tile), 4, coinUrl());
+        vm.tiles[e.tile] = { owner: e.seat, lv: e.lv };
+        AU.play('build');
+        W.setBuilding(e.tile, vm, true); this.redrawTiles();
+        W.puffs(...buildingAnchor(e.tile));
+        H.setProps(e.seat, this.propsOf(vm, e.seat));
+        H.floatText(...this.tokStage(e.seat), BOARD[e.tile].kind === 'tour' ? '买下观光地！' : `建成${LV_NAME[e.lv]}！`, '#fff');
+        await sleep(500);
+        break;
+      }
+      case 'upgrade': {
+        if (e.cost) { AU.play('cash'); this.addCash(e.seat, -e.cost); await H.coins(H.chipPos(e.seat), this.bldStage(e.tile), 4, coinUrl()); }
+        else { AU.play('card'); }
+        vm.tiles[e.tile].lv = e.lv;
+        AU.play('build');
+        W.setBuilding(e.tile, vm, true); this.redrawTiles();
+        W.puffs(...buildingAnchor(e.tile));
+        H.toast(`${BOARD[e.tile].name} 升级为${LV_NAME[e.lv]}`, GRAD.green);
+        await sleep(600);
+        break;
+      }
+      case 'takeover': {
+        AU.play('takeover');
+        H.toast(`${vm.seats[e.seat].name} 收购了 ${BOARD[e.tile].name}！`, GRAD.gold);
+        this.addCash(e.seat, -e.cost);
+        await H.coins(H.chipPos(e.seat), H.chipPos(e.from), 6, coinUrl());
+        this.addCash(e.from, e.cost);
+        vm.tiles[e.tile].owner = e.seat;
+        W.setBuilding(e.tile, vm, true); this.redrawTiles();
+        H.setProps(e.seat, this.propsOf(vm, e.seat)); H.setProps(e.from, this.propsOf(vm, e.from));
+        await sleep(300);
+        break;
+      }
+      case 'sell':
+        vm.tiles[e.tile] = { owner: null, lv: 0 };
+        this.addCash(e.seat, e.amount);
+        W.setBuilding(e.tile, vm, false); this.redrawTiles();
+        H.floatText(...this.tokStage(e.seat), `变卖 ${BOARD[e.tile].name} +¥${e.amount}万`, '#ffd166');
+        await sleep(450);
+        break;
+      case 'bankrupt':
+        AU.play('ouch');
+        vm.seats[e.seat].bankrupt = true;
+        vm.tiles.forEach((t, i) => { if (t.owner === e.seat) { vm.tiles[i] = { owner: null, lv: 0 }; W.setBuilding(i, vm, false); } });
+        this.redrawTiles();
+        H.setBankrupt(e.seat);
+        H.toast(`${vm.seats[e.seat].name} 破产出局`, GRAD.gray);
+        this.layout(true);
+        await sleep(1300);
+        break;
+      case 'card':
+        AU.play('card');
+        H.toast(`机会卡 · ${e.text}`, GRAD.purple);
+        await sleep(1300);
+        break;
+      case 'bonus':
+        H.floatText(...this.tokStage(e.seat), `+¥${e.amount}万`, '#7cff6b');
+        this.addCash(e.seat, e.amount);
+        await sleep(450);
+        break;
+      case 'festival':
+        AU.play('card');
+        vm.festivalTile = e.tile; this.redrawTiles();
+        H.toast(`环球节庆：${BOARD[e.tile].name} 过路费 ×2`, GRAD.purple);
+        await sleep(900);
+        break;
+      case 'airport':
+        AU.play('card');
+        vm.seats[e.seat].flyNext = true;
+        H.toast('环球航班：下回合可飞往任意格', GRAD.green);
+        await sleep(900);
+        break;
+      case 'prompt':
+        if (e.pending.seat !== this.me) { H.chipText(e.pending.seat, '思考中…'); }
+        break;
+      case 'decline':
+        break;
+      case 'end':
+        await sleep(400);
+        this.showEnd(e.winner, e.reason);
+        break;
+    }
+  }
+
+  private bldStage(i: number): [number, number] {
+    const [x, y] = buildingAnchor(i);
+    return this.world.toStage(x, y - 20);
+  }
+
+  private async playMove(seat: number, path: number[], via: 'walk' | 'fly' | 'warp') {
+    const vm = this.vm!, W = this.world, tk = W.tokens[seat];
+    const dest = path[path.length - 1];
+    if (via !== 'walk') {
+      AU.play(via === 'fly' ? 'takeover' : 'island');
+      const [x, y] = tokenAnchor(dest);
+      await tk.warp(x, y, via === 'fly');
+      vm.seats[seat].pos = dest;
+      this.layout(true);
+      return;
+    }
+    const flash = W.flashTile(dest, SEAT_COLORS[seat]);
+    W.pulse(flash);
+    for (let k = 0; k < path.length; k++) {
+      const [x, y] = tokenAnchor(path[k]);
+      AU.play('hop', k);
+      void W.camTo(x, y - 40, 1.45, 240);
+      await tk.hop(x, y, path.length - k);
+    }
+    tk.endMove();
+    flash.destroy();
+    vm.seats[seat].pos = dest;
+    AU.play('land');
+    W.puffs(...tokenAnchor(dest));
+    this.layout(true);
+    await sleep(200);
+  }
+
+  private async playPay(from: number, to: number | null, amount: number, tile: number | null, reason: string) {
+    const vm = this.vm!, W = this.world, H = this.hud;
+    if (reason === 'toll' && to != null && tile != null) {
+      AU.play('ouch');
+      H.toast(`${vm.seats[from].name} 踩到 ${vm.seats[to].name} 的 ${BOARD[tile].name}！`);
+      W.tokens[from].setSad(true);
+      await W.tokens[from].shake();
+    } else if (reason === 'tax') {
+      AU.play('tax'); H.toast(`税务局：缴纳资产税 ¥${amount}万`, GRAD.blue);
+    } else {
+      AU.play('pay');
+    }
+    const a = this.tokStage(from);
+    H.floatText(a[0], a[1] - 30, `-¥${amount}万`, '#ff5a4a');
+    this.addCash(from, -amount);
+    H.chipFx(from, 'hit');
+    await H.coins(a, to != null ? H.chipPos(to) : BANK, Math.min(8, 3 + Math.ceil(amount / 20)), coinUrl());
+    if (to != null) {
+      AU.play('gain');
+      this.addCash(to, amount);
+      H.chipFx(to, 'gain');
+      const b = H.chipPos(to);
+      H.floatText(b[0], b[1] + (to === 1 || to === 2 ? 50 : -50), `+¥${amount}万`, '#7cff6b');
+      void W.tokens[to].cheer();
+    }
+    await sleep(500);
+    W.tokens[from].setSad(false);
+  }
+
+  // ───────────────────────── 本地玩家输入 ─────────────────────────
+  private async input(m: SyncMsg) {
+    const s = m.state;
+    if (s.phase === 'ended' || s.turn !== this.me) return;
+    const seq = s.seq;
+    if (s.phase === 'roll') {
+      const again = s.seats[this.me].doubles > 0;
+      const zone = await this.hud.waitRoll(controlOf(s.seats[this.me]), again, (z) => this.previewZone(z));
+      if (zone < 0 || this.latest?.state.seq !== seq) return;
+      this.src.send({ type: 'roll', zone });
+      return;
+    }
+    if (s.phase === 'choose' && s.pending && s.pending.seat === this.me) {
+      const timeout = m.deadline ? Math.max(1000, m.deadline - Date.now()) : TURN_TIMEOUT_MS.choose;
+      const opt = await this.hud.choose(this.sheetSpec(s, s.pending), timeout);
+      if (opt === -2 || this.latest?.state.seq !== seq) return;
+      this.src.send({ type: 'choose', option: opt });
+    }
+  }
+
+  private previewZone(z: number | null) {
+    this.preview.forEach((g) => g.destroy());
+    this.preview = [];
+    if (z == null) return;
+    const pos = this.vm!.seats[this.me].pos, zone = ZONES[z];
+    for (let n = zone.lo; n <= zone.hi; n++) {
+      const g = this.world.flashTile((pos + n) % BOARD.length, zone.color, 0.55);
+      this.preview.push(g);
+    }
+  }
+
+  private sheetSpec(s: GameState, p: Pending): SheetSpec {
+    const i = p.tile ?? 0, d = BOARD[i];
+    const col = GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR] ?? '#3b82f6';
+    const label = (k: number) => p.options[k].label;
+    const lvImg = (lv: number) => (lv > 0 ? bldUrl(lv) : undefined);
+    switch (p.kind) {
+      case 'buy': {
+        if (d.kind === 'tour') {
+          const n = s.tiles.filter((t, x) => t.owner === this.me && BOARD[x].kind === 'tour').length;
+          return { title: d.name, color: col, kind: '观光地 · 集齐 4 处即「观光地独占」胜利', rows: [['地价', `¥${d.price} 万`], ['已拥有观光地', `${n} / 4`]], pending: p, optionLabel: label };
+        }
+        const g = GROUPS[d.group!], own = g.filter((x) => s.tiles[x].owner === this.me).length;
+        return {
+          title: d.name, color: col, kind: '空地 · 选择建造等级', img: lvImg(p.options[p.options.length - 1].value),
+          rows: [['地价', `¥${d.price} 万`], ['同色组', `${own} / ${g.length} 已拥有`], ['现金', `¥${s.seats[this.me].cash} 万`]],
+          pending: p, optionLabel: label,
+        };
+      }
+      case 'upgrade':
+        return {
+          title: d.name, color: col, kind: `自己的地产 · 当前${LV_NAME[s.tiles[i].lv]}`, img: lvImg(p.options[p.options.length - 1].value),
+          rows: [['当前过路费', `¥${tollOf(s, i)} 万`], ['现金', `¥${s.seats[this.me].cash} 万`]], pending: p, optionLabel: label,
+        };
+      case 'takeover': {
+        const owner = s.seats[s.tiles[i].owner!];
+        return {
+          title: `收购 ${d.name}`, color: '#e11d48', kind: `${owner.name} 的${LV_NAME[s.tiles[i].lv]} · 支付 2 倍投入即可收购`, img: lvImg(s.tiles[i].lv),
+          rows: [['收购后过路费', `¥${tollOf(s, i)} 万`], ['地标不可被收购', '升到地标即锁定']], pending: p, optionLabel: label,
+        };
+      }
+      case 'festival':
+        return { title: '环球节庆', color: '#ec4899', kind: '选择一座自己的城市，过路费 ×2', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
+      case 'fly':
+        return { title: '环球航班', color: '#16a34a', kind: '选择目的地（经过起点可领月薪）', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
+    }
+  }
+
+  // ───────────────────────── 结算 ─────────────────────────
+  private showEnd(winner: number, reason: WinReason) {
+    const s = this.vm!;
+    const rows = s.seats.map((p, i) => ({
+      name: p.name, color: SEAT_COLORS[i], img: charUrl(p.charId),
+      value: totalAssets(s, i), tag: i === winner ? '胜利' : p.bankrupt ? '破产' : '',
+      w: i === winner ? 1 : 0,
+    })).sort((a, b) => b.w - a.w || b.value - a.value);
+    const meWin = winner === this.me;
+    if (meWin) AU.play('win'); else AU.play('miss');
+    this.hud.showResult(meWin ? '大获全胜' : `${s.seats[winner].name} 获胜`, WIN_TEXT[reason], rows, this.onRestart);
+  }
+}
+
+// 资源路径
+const base = () => import.meta.env.BASE_URL + 'assets/';
+export const charUrl = (c: string) => `${base()}${CHAR_TEX[c]}.png`;
+const coinUrl = () => `${base()}coin.png`;
+const bldUrl = (lv: number) => `${base()}bld${lv}.png`;
