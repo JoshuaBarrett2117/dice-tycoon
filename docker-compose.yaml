@@ -1,11 +1,13 @@
-# 《掷富天下》一键部署：docker compose up -d 后打开 http://<主机>:2567
+# 《掷富天下》一键部署：docker compose up -d 后打开 http://<主机IP>:2567
 services:
   dice-tycoon:
     image: joshualoooooo/dice-tycoon:latest
     container_name: dice-tycoon
     restart: unless-stopped
+    # 用默认网桥，不额外创建网络（NAS 上 Docker 子网池容易用完）
+    network_mode: bridge
     ports:
-      - "2567:2567"        # 左边可改成任意空闲端口
+      - "2567:2567"   # 左边可改成任意空闲端口
     environment:
       - TZ=Asia/Shanghai
       - PORT=2567
