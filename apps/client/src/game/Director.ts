@@ -477,6 +477,30 @@ export class Director {
     }
   }
 
+  /** 选目标的道具：高亮合法格，点选棋盘格即选定；点非法格只提示、不消耗道具 */
+  private mountBoardPick(p: Pending, pick: (k: number) => void) {
+    const legal = new Map<number, number>();
+    p.options.forEach((o, k) => legal.set(o.value, k));
+    const marks = [...legal.keys()].map((i) => {
+      const g = this.world.flashTile(i, '#38bdf8', 0.5);
+      this.world.pulse(g);
+      return g;
+    });
+    const canvas = this.world.app.canvas;
+    const onDown = (e: PointerEvent) => {
+      const i = this.world.tileAt(e.clientX, e.clientY);
+      if (i < 0) return;
+      const k = legal.get(i);
+      if (k != null) pick(k);
+      else this.hud.toast(`「${BOARD[i].name}」不能作为目标`);
+    };
+    canvas.addEventListener('pointerdown', onDown);
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      marks.forEach((g) => g.destroy());
+    };
+  }
+
   private sheetSpec(s: GameState, p: Pending): SheetSpec {
     const i = p.tile ?? 0, d = BOARD[i];
     const col = GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR] ?? '#3b82f6';
@@ -511,8 +535,11 @@ export class Director {
         return { title: '环球节庆', color: '#ec4899', kind: '选择一座自己的城市，过路费 ×2', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
       case 'item':
         return {
-          title: ITEMS[p.item!].name, color: '#0ea5e9', kind: ITEMS[p.item!].desc, rows: [], pending: p, grid: true,
+          title: ITEMS[p.item!].name, color: '#0ea5e9',
+          kind: p.item === 'dice' ? ITEMS[p.item!].desc : `${ITEMS[p.item!].desc} · 可直接点击棋盘上发亮的目标格`,
+          rows: [], pending: p, grid: true,
           optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : BOARD[p.options[k].value].name),
+          onMount: p.item === 'dice' ? undefined : (pick) => this.mountBoardPick(p, pick),
         };
       case 'auction': {
         const au = p.auction!;

@@ -259,10 +259,29 @@ export class World {
     }, ease.inOutCubic);
   }
 
+  /** 屏幕坐标（clientX/Y）→ 被点中的格子下标；点在棋盘外返回 -1 */
+  tileAt(clientX: number, clientY: number): number {
+    const r = this.app.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return -1;
+    const sx = ((clientX - r.left) / r.width) * 1280, sy = ((clientY - r.top) / r.height) * 720;
+    const wx = (sx - this.cam.x) / this.cam.s, wy = (sy - this.cam.y) / this.cam.s;
+    for (let i = 0; i < BOARD.length; i++) if (inPoly(wx, wy, tileCorners(i))) return i;
+    return -1;
+  }
+
   /** 世界坐标 → 舞台坐标（按镜头最终位置） */
   toStage(x: number, y: number): [number, number] {
     return [x * this.cam.s + this.cam.x, y * this.cam.s + this.cam.y];
   }
+}
+
+function inPoly(x: number, y: number, pts: [number, number][]) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 // ───────────────────────── 绘制工具 ─────────────────────────

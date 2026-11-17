@@ -14,6 +14,8 @@ export interface SheetSpec {
   /** 选项的展示文字 */
   optionLabel: (k: number) => string;
   grid?: boolean;
+  /** 额外的选取途径（如点选棋盘格）：挂载时拿到 pick(选项下标)，返回清理函数 */
+  onMount?: (pick: (k: number) => void) => () => void;
 }
 
 /** 掷骰前的行动栏：手牌 / 技能 / 额外按钮 */
@@ -334,8 +336,10 @@ export class Hud {
     const an = bar.animate([{ width: '100%' }, { width: '0%' }], { duration: timeoutMs, fill: 'forwards' });
     return new Promise((res) => {
       let done = false;
+      let unmount: (() => void) | undefined;
       const finish = (v: number, silent = false) => {
         if (done) return; done = true; this.cancelFn = null;
+        unmount?.();
         if (!silent) AU.play('click');
         an.cancel(); s.classList.remove('show');
         setTimeout(() => res(v), silent ? 0 : 250);
@@ -348,6 +352,7 @@ export class Hud {
         b.onclick = () => finish(k);
         opts.appendChild(b);
       });
+      unmount = spec.onMount?.((k) => finish(k));
       $<HTMLButtonElement>(s, '.no').onclick = () => finish(-1);
       an.onfinish = () => finish(-1);
     });
