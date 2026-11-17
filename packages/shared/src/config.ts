@@ -155,3 +155,11 @@ export const REPLAY_PLAYER = {
   /** 一步演出结束后到下一步开始前的停顿（毫秒，1 倍速下） */
   gapMs: 300,
 } as const;
+
+/** 本地档案与对局历史（v0.4，提案值） */
+export const PROFILE = {
+  /** 历史最多保留条数，超出时丢弃最旧的 */
+  historyLimit: 50,
+  nameMax: 12,
+  keys: { profile: 'dt:profile:v1', history: 'dt:history:v1', replayPrefix: 'dt:replay:v1:' },
+} as const;

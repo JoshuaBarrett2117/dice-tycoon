@@ -32,7 +32,7 @@ export class Director {
   private pendingJump: GameState | null = null;
   private abort = false;
 
-  constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void, private onWatchReplay?: (rec: GameRecord) => void) {
+  constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void, private onWatchReplay?: (rec: GameRecord) => void, private onEnded?: (rec: GameRecord) => void) {
     src.onJump?.((s) => this.jump(s));
     src.onSync((m) => {
       this.hud.cancelInput();
@@ -603,6 +603,7 @@ export class Director {
     const watching = kind === 'replay' || kind === 'spectate';
     const meWin = winner === this.me;
     if (meWin || watching) AU.play('win'); else AU.play('miss');
+    if (!watching && this.onEnded) void this.src.exportReplay().then((rec) => this.onEnded!(rec)).catch(() => {});
     const doExport = async () => {
       const rec = await this.src.exportReplay();
       const url = URL.createObjectURL(new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' }));

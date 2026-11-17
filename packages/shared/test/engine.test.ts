@@ -933,3 +933,55 @@ describe('v0.3 阶段3：快速匹配队列', () => {
     expect(seats.filter((x) => x.isBot)).toHaveLength(d.bots);
   });
 });
+
+import { type HistoryEntry, PROFILE, addHistory, computeStats, entryFromRecord, newProfile, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile } from '../src';
+
+describe('v0.4：本地档案与对局历史', () => {
+  const mk = (i: number, won = false): HistoryEntry => ({ id: 'g' + i, at: 1000 + i, kind: 'solo', rank: won ? 1 : 2, won, winner: 'x', winReason: null, rounds: 5, seats: [], ranking: [], seed: i, steps: 3 });
+  it('档案往返；脏数据 / 旧版本 / 空值重建不抛错', () => {
+    const p = newProfile(123456);
+    expect(parseProfile(serializeProfile(p), 1)).toEqual({ profile: p, rebuilt: false });
+    for (const bad of [null, '', '{oops', '[]', '"x"', '{"v":0,"id":"a"}', '{"v":1}', '{"v":1,"id":""}']) {
+      const r = parseProfile(bad, 99);
+      expect(r.rebuilt).toBe(true);
+      expect(r.profile.id).toBeTruthy();
+    }
+    const part = parseProfile('{"v":1,"id":"a1","name":"  ","charId":"zzz","createdAt":"x"}', 77).profile;
+    expect(part.id).toBe('a1'); expect(part.charId).toBe('jin'); expect(part.createdAt).toBe(77); expect(part.name.length).toBeGreaterThan(0);
+  });
+  it('历史写入 / 读取 / 删除 / 上限截断', () => {
+    let items: HistoryEntry[] = [];
+    let dropped = 0;
+    for (let i = 0; i < PROFILE.historyLimit + 5; i++) { const r = addHistory(items, mk(i)); items = r.items; dropped += r.dropped.length; }
+    expect(items).toHaveLength(PROFILE.historyLimit);
+    expect(dropped).toBe(5);
+    expect(items[0].id).toBe('g' + (PROFILE.historyLimit + 4));
+    const back = parseHistory(serializeHistory(items));
+    expect(back).toHaveLength(PROFILE.historyLimit);
+    expect(removeHistory(back, back[0].id)).toHaveLength(PROFILE.historyLimit - 1);
+  });
+  it('历史脏数据安全丢弃', () => {
+    expect(parseHistory('nope')).toEqual([]);
+    expect(parseHistory('{"v":2,"items":[]}')).toEqual([]);
+    expect(parseHistory('{"v":1,"items":[1,null,{"id":"ok","seats":"bad","ranking":[5]}]}').map((x) => x.id)).toEqual(['ok']);
+  });
+  it('统计', () => {
+    expect(computeStats([])).toEqual({ games: 0, wins: 0, winRate: 0 });
+    expect(computeStats([mk(1, true), mk(2), mk(3), mk(4, true)])).toEqual({ games: 4, wins: 2, winRate: 0.5 });
+  });
+  it('由回放生成条目：名次按 accountId，未结束返回 null', () => {
+    const seats: SeatConfig[] = SEATS.map((s, i) => (i === 0 ? { ...s, accountId: 'p-me' } : { ...s, isBot: true }));
+    const rec = new ReplayRecorder({ seed: 5, seats, maxRounds: 3 });
+    let s = createGame({ seed: 5, seats, maxRounds: 3 });
+    expect(entryFromRecord(rec.toRecord(s), 'p-me', 'solo', 1)).toBeNull();
+    let n = 0;
+    while (s.phase !== 'ended' && n++ < 5000) { const a = actorOf(s); const act = botAction(s, a); const r = applyAction(s, a, act); if (!r.ok) throw new Error(r.error); rec.push(a, act); s = r.state; }
+    const rc = rec.toRecord(s);
+    const e = entryFromRecord(rc, 'p-me', 'solo', 2)!;
+    expect(e.rank).toBe(rc.result!.ranking!.find((x) => x.accountId === 'p-me')!.rank);
+    expect(e.steps).toBe(rc.actions.length);
+    expect(e.seats).toHaveLength(4);
+    expect(e.won).toBe(rc.result!.winner === 0);
+    expect(entryFromRecord(rc, 'nobody', 'online', 3)!.rank).toBe(0);
+  });
+});

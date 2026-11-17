@@ -1,5 +1,6 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { CHARACTERS, CHAR_IDS, computeStats, entryFromRecord, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { deleteHistory, loadHistory, loadProfile, loadReplay, pushHistory, saveProfile } from './core/store';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -21,11 +22,13 @@ function fit() {
 addEventListener('resize', fit);
 fit();
 
+const profile = loadProfile();
 const prefs = {
-  name: localStorage.getItem('dt.name') || '玩家' + Math.floor(Math.random() * 900 + 100),
-  charId: (localStorage.getItem('dt.char') as CharId) || 'jin',
+  name: profile.name,
+  charId: profile.charId,
   server: localStorage.getItem('dt.server') || DEFAULT_SERVER,
 };
+const accountId = profile.id;
 
 let world: World | null = null;
 let worldReady: Promise<void> = Promise.resolve();
@@ -48,7 +51,7 @@ function showMenu(msg = '') {
   const m = overlay('menu');
   m.innerHTML = `
     <div class="logo st3">掷富天下</div>
-    <div class="tag">网页大富翁 · v0.3 开发版</div>
+    <div class="tag">网页大富翁 · v0.4 开发版</div>
     <div class="form">
       <label>昵称 <input id="nm" maxlength="12" value="${prefs.name}"></label>
       <div class="chars">${CHAR_IDS.map((c) => `
@@ -61,7 +64,7 @@ function showMenu(msg = '') {
         <button class="big green" id="quick">快速匹配<small>凑满 4 人开局，超时机器人补位</small></button>
       </div>
       <div class="join"><input id="rid" placeholder="输入房间号加入"><button id="joinb">加入</button></div>
-      <div class="subbtns"><button id="watch">观战列表</button><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
+      <div class="subbtns"><button id="watch">观战列表</button><button id="prof">档案与历史</button><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
       <details><summary>服务器</summary><input id="srv" value="${prefs.server}"></details>
       <div class="msg">${msg}</div>
     </div>`;
@@ -73,13 +76,14 @@ function showMenu(msg = '') {
   const save = () => {
     prefs.name = (m.querySelector<HTMLInputElement>('#nm')!.value.trim() || prefs.name).slice(0, 12);
     prefs.server = m.querySelector<HTMLInputElement>('#srv')!.value.trim() || DEFAULT_SERVER;
-    localStorage.setItem('dt.name', prefs.name); localStorage.setItem('dt.char', prefs.charId); localStorage.setItem('dt.server', prefs.server);
+    profile.name = prefs.name; profile.charId = prefs.charId; saveProfile(profile); try { localStorage.setItem('dt.server', prefs.server); } catch { /* ignore */ }
     AU.unlock();
   };
   m.querySelector<HTMLButtonElement>('#solo')!.onclick = () => { save(); startSolo(); };
   m.querySelector<HTMLButtonElement>('#create')!.onclick = () => { save(); void startOnline(); };
   m.querySelector<HTMLButtonElement>('#quick')!.onclick = () => { save(); void startQuick(); };
   m.querySelector<HTMLButtonElement>('#watch')!.onclick = () => { save(); showRooms(); };
+  m.querySelector<HTMLButtonElement>('#prof')!.onclick = () => { save(); showProfile(); };
   m.querySelector<HTMLInputElement>('#rfile')!.onchange = async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -96,17 +100,47 @@ function showMenu(msg = '') {
   };
 }
 
+// ───────────────────────── 档案与历史 ─────────────────────────
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+function download(rec: GameRecord) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `dice-tycoon-replay-${rec.seed}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function showProfile(note = '') {
+  const o = overlay('lobby');
+  const hist = loadHistory();
+  const st = computeStats(hist);
+  const d = (t: number) => new Date(t).toLocaleString('zh-CN', { hour12: false });
+  o.innerHTML = `<div class="panel"><div class="ttl">档案与历史</div>
+    <div class="hint"><b>${esc(profile.name)}</b> · ${CHARACTERS[profile.charId].name} · 建档于 ${d(profile.createdAt)}<br>
+    总局数 <b>${st.games}</b> · 胜场 <b>${st.wins}</b> · 胜率 <b>${(st.winRate * 100).toFixed(0)}%</b>　（仅保存在本浏览器）</div>
+    <div class="rooms" id="hist">${hist.length ? hist.map((h) => `<div class="rm"><span>${d(h.at)} · ${h.kind === 'online' ? '联机' : '单机'} · ${h.rank ? `第 ${h.rank} 名` : '—'}${h.won ? ' 🏆' : ''} · ${h.winner ? esc(h.winner) + ' 获胜' : ''} · ${h.rounds} 回合</span><button data-p="${h.id}">回放</button><button data-e="${h.id}">导出</button><button data-d="${h.id}">删除</button></div>`).join('') : '暂无对局记录，打完一局就会出现在这里'}</div>
+    <button class="link" id="back">返回</button><div class="err">${esc(note)}</div></div>`;
+  o.querySelector<HTMLButtonElement>('#back')!.onclick = () => showMenu();
+  const need = (id: string) => {
+    const rec = loadReplay(id);
+    if (!rec) showProfile('这条记录的回放数据已丢失或损坏');
+    return rec;
+  };
+  o.querySelectorAll<HTMLButtonElement>('button[data-p]').forEach((b) => (b.onclick = () => { const r = need(b.dataset.p!); if (r) startReplay(r); }));
+  o.querySelectorAll<HTMLButtonElement>('button[data-e]').forEach((b) => (b.onclick = () => { const r = need(b.dataset.e!); if (r) download(r); }));
+  o.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => (b.onclick = () => { deleteHistory(b.dataset.d!); showProfile(); }));
+}
+
 // ───────────────────────── 单机 ─────────────────────────
 function startSolo() {
   closeOverlay();
   const others = CHAR_IDS.filter((c) => c !== prefs.charId);
   const seats: SeatConfig[] = [
-    { id: 'me', name: prefs.name, charId: prefs.charId },
+    { id: 'me', name: prefs.name, charId: prefs.charId, accountId },
     { id: 'bot1', name: '阿柚', charId: others[0], isBot: true },
     { id: 'bot2', name: '老周', charId: others[1], isBot: true },
     { id: 'bot3', name: '阿星', charId: others[2], isBot: true },
   ];
-  void startGame(new LocalSource(seats));
+  void startGame(new LocalSource(seats), 'solo');
 }
 
 // ───────────────────────── 在线 ─────────────────────────
@@ -115,7 +149,7 @@ async function startOnline(roomId?: string) {
   o.innerHTML = '<div class="panel"><div class="ttl">连接中…</div></div>';
   let net: NetSource;
   try {
-    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId }, roomId);
+    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId, accountId }, roomId);
   } catch (err) {
     showMenu(`连接失败：${(err as Error).message || err}（请确认对战服已启动）`);
     return;
@@ -140,7 +174,7 @@ async function startOnline(roomId?: string) {
     if (m.started) {
       started = true;
       closeOverlay();
-      void startGame(net);
+      void startGame(net, 'online');
     }
   });
 }
@@ -151,7 +185,7 @@ async function startQuick() {
   o.innerHTML = '<div class="panel"><div class="ttl">正在寻找对局…</div></div>';
   let net: NetSource;
   try {
-    net = await NetSource.connectQuick(prefs.server, { name: prefs.name, charId: prefs.charId });
+    net = await NetSource.connectQuick(prefs.server, { name: prefs.name, charId: prefs.charId, accountId });
   } catch (err) {
     showMenu(`匹配失败：${(err as Error).message || err}（请确认对战服已启动）`);
     return;
@@ -161,7 +195,7 @@ async function startQuick() {
   net.onError((e) => { const el = o.querySelector('.err'); if (el) el.textContent = e.message; });
   net.onLobby((m: LobbyMsg) => {
     if (started) return;
-    if (m.started) { started = true; closeOverlay(); void startGame(net); return; }
+    if (m.started) { started = true; closeOverlay(); void startGame(net, 'online'); return; }
     const q = m.quick;
     if (q) total = Math.max(total, q.remainingMs);
     const left = q ? Math.ceil(q.remainingMs / 1000) : 0;
@@ -209,7 +243,7 @@ function showRooms() {
 
 async function startSpectate(roomId: string) {
   try {
-    const net = await NetSource.spectate(prefs.server, { name: prefs.name, charId: prefs.charId }, roomId);
+    const net = await NetSource.spectate(prefs.server, { name: prefs.name, charId: prefs.charId, accountId }, roomId);
     closeOverlay();
     void startGame(net);
   } catch (err) {
@@ -235,7 +269,7 @@ function startReplay(rec: GameRecord, fromMenu = false) {
 }
 
 // ───────────────────────── 对局 ─────────────────────────
-async function startGame(src: GameSource) {
+async function startGame(src: GameSource, kind?: 'solo' | 'online') {
   source = src;
   await worldReady;
   const hud = new Hud(stage);
@@ -248,7 +282,13 @@ async function startGame(src: GameSource) {
     hudEl.querySelector<HTMLButtonElement>('#spec-exit')!.onclick = exit;
     src.onSpectators((m) => { const t = document.getElementById('spec-tag'); if (t) t.textContent = `观战中 · ${m.count}/${m.max} 人观战`; });
   }
-  new Director(world!, hud, src, exit, (rec) => startReplay(rec));
+  new Director(world!, hud, src, exit, (rec) => startReplay(rec),
+    kind ? (rec) => {
+      try {
+        const e = entryFromRecord(rec, accountId, kind, Date.now());
+        if (e) pushHistory(e, rec);
+      } catch (err) { console.warn('[history]', err); }
+    } : undefined);
   AU.startBGM();
 }
 
