@@ -206,3 +206,4 @@ button { font-family: inherit; }
 #loading{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0d3b4f;color:#fff;font-size:16px}
 #loading .lb{width:min(60vw,360px);height:10px;border-radius:5px;background:rgba(255,255,255,.2);overflow:hidden}
 #loading .lf{height:100%;width:0;background:#ffd34d;transition:width .15s}
+#acts .act .ic{vertical-align:-5px;margin-right:4px}

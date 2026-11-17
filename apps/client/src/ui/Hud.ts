@@ -1,4 +1,5 @@
 /** DOM 版 HUD：头像芯片、掷骰键与蓄力条、骰子、提示条、选择面板、金币飞行、结算页 */
+import { icon } from './icons';
 import { GLOBAL_EVENTS, ZONES, zoneOfPower, type GlobalEventId, type Pending } from '@dt/shared';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
@@ -22,7 +23,7 @@ export interface SheetSpec {
 export interface ActsSpec {
   enabled: boolean;
   items: { id: string; name: string; desc: string }[];
-  skill: { name: string; desc: string; cd: number } | null;
+  skill: { name: string; desc: string; cd: number; charId?: string } | null;
   extras: { label: string; title: string; on: () => void }[];
   onItem: (id: string) => void;
   onSkill: () => void;
@@ -158,8 +159,8 @@ export class Hud {
       b.onclick = (e) => { e.stopPropagation(); if (dis || !spec.enabled) return; AU.unlock(); AU.play('click'); on(); };
       box.appendChild(b);
     };
-    spec.items.forEach((it) => mk('item', `<b>${esc(it.name)}</b><small>${esc(it.desc)}</small>`, it.desc, () => spec.onItem(it.id)));
-    if (spec.skill) mk('skill', `<b>${esc(spec.skill.name)}</b><small>${spec.skill.cd > 0 ? `冷却 ${spec.skill.cd} 回合` : '可用'}</small>`, spec.skill.desc, spec.onSkill, spec.skill.cd > 0);
+    spec.items.forEach((it) => mk('item', `${icon(it.id)}<b>${esc(it.name)}</b><small>${esc(it.desc)}</small>`, it.desc, () => spec.onItem(it.id)));
+    if (spec.skill) mk('skill', `${icon(spec.skill.charId ?? 'skill')}<b>${esc(spec.skill.name)}</b><small>${spec.skill.cd > 0 ? `冷却 ${spec.skill.cd} 回合` : '可用'}</small>`, spec.skill.desc, spec.onSkill, spec.skill.cd > 0);
     spec.extras.forEach((x) => mk('extra', `<b>${esc(x.label)}</b>`, x.title, x.on));
   }
 

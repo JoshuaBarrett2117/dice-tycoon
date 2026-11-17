@@ -146,7 +146,7 @@ export class Director {
     this.hud.setActs({
       enabled,
       items: me.items.map((id) => ({ id, name: ITEMS[id].name, desc: ITEMS[id].desc })),
-      skill: me.bankrupt ? null : { name: def.active.name, desc: def.active.desc, cd: me.skillCd },
+      skill: me.bankrupt ? null : { name: def.active.name, desc: def.active.desc, cd: me.skillCd, charId: me.charId },
       extras: this.extraActs(s, press),
       onItem: (id) => press({ type: 'useItem', item: id as ItemId }),
       onSkill: () => press({ type: 'useSkill' }),
@@ -649,6 +649,6 @@ export class Director {
 
 // 资源路径
 const base = () => import.meta.env.BASE_URL + 'assets/';
-export const charUrl = (c: string) => `${base()}${CHAR_TEX[c]}.png`;
+export const charUrl = (c: string) => `${base()}${CHAR_TEX[c]}.${CHAR_TEX[c] === "char6" ? "svg" : "png"}`;
 const coinUrl = () => `${base()}coin.png`;
 const bldUrl = (lv: number) => `${base()}bld${lv}.png`;
