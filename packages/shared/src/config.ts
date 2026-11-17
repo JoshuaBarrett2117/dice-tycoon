@@ -198,3 +198,22 @@ export const QUESTS = {
     { id: 'online5', title: '联机达人', desc: '累计完成 5 局联机', metric: 'online', target: 5, badge: '🌐 联机达人' },
   ],
 } as const;
+
+/**
+ * 特殊格（v0.7，提案值）。叠加在「机会」格之上（位置沿用原机会格，不改 32 格布局与地产）。
+ * 仅 GameState.specials 为 true 的对局生效；旧回放（无此标记）按原规则重放，保持一致。
+ */
+export const SPECIAL_TILES: Record<number, { kind: 'teleport' | 'bonus'; name: string; to?: number; amount?: number; desc: string }> = {
+  11: { kind: 'teleport', name: '传送门', to: 20, desc: '停留时传送到圣托里尼（不领月薪，并结算落地）' },
+  28: { kind: 'bonus', name: '奖金格', amount: 25, desc: '停留时领取奖金 ¥25 万' },
+};
+
+/** 棋盘主题（v0.7，仅表现层，不改任何规则数值；本地存储，联机各自表现） */
+export const THEMES = {
+  classic: { name: '经典', bgTint: 0xffffff, base: [0xfdf6e7, 0xc9a97a, 0xb8956a, 0xe8d6b4], inner: 0xf3e6c8, innerLine: 0xe2cfa6, tileTop: 0xfffaf0, logo: 0xbe965a, label: 0x3c3c5a, subText: 0x8a90a8 },
+  neon: { name: '霓虹夜市', bgTint: 0x4a3f8f, base: [0x1a1740, 0x0e0c2a, 0x0a0820, 0x3a2f7a], inner: 0x15123a, innerLine: 0xff3fa4, tileTop: 0x241f55, logo: 0x2ee6ff, label: 0xff8ad8, subText: 0xb9b4ff },
+} as const;
+export type ThemeId = keyof typeof THEMES;
+export const THEME_IDS = Object.keys(THEMES) as ThemeId[];
+export const THEME_DEFAULT: ThemeId = 'classic';
+export const THEME_KEY = 'dt:theme:v1';

@@ -99,6 +99,8 @@ export interface GlobalEventState { id: Exclude<GlobalEventId, 'none'>; untilRou
 export interface GameState {
   /** 2 = v0.2（新增 globalEvent / doubleSalary 等）；旧快照用 migrateState 升级 */
   version: 2;
+  /** v0.7：本局启用特殊格（传送 / 奖金）；旧快照无此字段视为 false */
+  specials?: boolean;
   seed: number;
   rng: number;
   /** 每次合法操作 +1，客户端据此丢弃过期快照 */
@@ -141,6 +143,7 @@ export type GameEvent =
   | { t: 'turn'; seat: number; round: number }
   | { t: 'roll'; seat: number; zone: number; dice: [number, number]; hit: boolean }
   | { t: 'move'; seat: number; path: number[]; via: 'walk' | 'fly' | 'warp' }
+  | { t: 'special'; seat: number; tile: number; kind: 'teleport' | 'bonus'; to?: number; amount?: number }
   | { t: 'salary'; seat: number; amount: number }
   | { t: 'doubles'; seat: number; count: number }
   | { t: 'island'; seat: number; turns: number }
@@ -182,4 +185,4 @@ export type ApplyResult = ApplyOk | ApplyErr;
 /** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string; difficulty?: BotDifficulty }
-export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number }
+export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean }

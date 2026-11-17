@@ -154,6 +154,7 @@ export class MatchRoom extends Room {
     const seed = (Math.random() * 2 ** 32) >>> 0;
     const cfg = {
       seed,
+      specials: true,
       seats: this.seats.map((s, i) => ({
         id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot,
         ...(s.isBot ? { difficulty: BOT_DEFAULT_DIFFICULTY } : {}),

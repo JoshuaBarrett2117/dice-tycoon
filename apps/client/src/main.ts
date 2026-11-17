@@ -1,6 +1,6 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
-import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, pushHistory, saveProfile } from './core/store';
+import { CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, pushHistory, saveProfile, saveTheme } from './core/store';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -60,6 +60,7 @@ function showMenu(msg = '') {
           <img src="${charUrl(c)}" alt=""><b>${CHARACTERS[c].name}</b><small>${CHARACTERS[c].skill}</small>
         </button>`).join('')}</div>
       <label>单机机器人难度 <select id="diff">${(['easy', 'normal', 'hard'] as const).map((d) => `<option value="${d}" ${d === prefs.difficulty ? 'selected' : ''}>${{ easy: '简单', normal: '普通', hard: '困难' }[d]}</option>`).join('')}</select></label>
+      <label>棋盘主题 <select id="theme">${THEME_IDS.map((t) => `<option value="${t}" ${t === loadTheme() ? 'selected' : ''}>${THEMES[t].name}</option>`).join('')}</select></label>
       <div class="btns">
         <button class="big gold" id="solo">单机对战<small>你 vs 3 个机器人</small></button>
         <button class="big blue" id="create">创建房间<small>好友联机，空位机器人补齐</small></button>
@@ -75,6 +76,10 @@ function showMenu(msg = '') {
     m.querySelectorAll('.ch').forEach((x) => x.classList.toggle('on', x === b));
     AU.unlock(); AU.play('click');
   }));
+  m.querySelector<HTMLSelectElement>('#theme')!.onchange = (e) => {
+    const id = (e.target as HTMLSelectElement).value as ThemeId;
+    saveTheme(id); world?.setTheme(id); AU.unlock(); AU.play('click');
+  };
   const save = () => {
     prefs.name = (m.querySelector<HTMLInputElement>('#nm')!.value.trim() || prefs.name).slice(0, 12);
     prefs.server = m.querySelector<HTMLInputElement>('#srv')!.value.trim() || DEFAULT_SERVER;

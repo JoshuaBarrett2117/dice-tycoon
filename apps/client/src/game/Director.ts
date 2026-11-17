@@ -8,6 +8,7 @@ import {
   GLOBAL_EVENTS,
   type Action, type GameEvent, type GameRecord, type GameState, type ItemId, type Pending, type WinReason,
 } from '@dt/shared';
+import { loadTheme } from '../core/store';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
 import { GRAD, type Hud, type SheetSpec } from '../ui/Hud';
@@ -99,6 +100,7 @@ export class Director {
   private init(s: GameState) {
     this.vm = structuredClone(s);
     this.world.setPlayers(s.seats.map((_, i) => SEAT_COLORS[i]), s.seats.map((p) => p.charId));
+    this.world.setTheme(loadTheme());
     this.world.buildBoard(s);
     this.hud.setupPlayers(s.seats.map((p, i) => ({
       name: p.name, charName: CHARACTERS[p.charId].name, color: SEAT_COLORS[i],
@@ -307,6 +309,11 @@ export class Director {
         AU.play('card');
         H.toast(`机会卡 · ${e.text}`, GRAD.purple);
         await sleep(1300);
+        break;
+      case 'special':
+        AU.play('card');
+        H.toast(e.kind === 'teleport' ? '传送门 · 传送到圣托里尼！' : `奖金格 · 领取奖金 ¥${e.amount}万`, GRAD.purple);
+        await sleep(900);
         break;
       case 'bonus':
         H.floatText(...this.tokStage(e.seat), `+¥${e.amount}万`, '#7cff6b');

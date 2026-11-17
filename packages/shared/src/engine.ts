@@ -7,7 +7,7 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, ISLAND_INDEX, SIDES, TOURS, isOwnable } from './board';
 import { CHARACTERS } from './characters';
-import { GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
+import { SPECIAL_TILES, GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
   Action, AuctionState, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, TileState, WinReason,
@@ -31,6 +31,7 @@ export function createGame(cfg: GameConfig): GameState {
     version: 2, seed: cfg.seed >>> 0, rng: cfg.seed >>> 0, seq: 0, seats,
     tiles: BOARD.map(() => (emptyTile())),
     turn: 0, round: 1, maxRounds: cfg.maxRounds ?? RULES.maxRounds,
+    ...(cfg.specials ? { specials: true } : {}),
     phase: 'roll', pending: null, festivalTile: null, globalEvent: null, roadblocks: [], winner: null, winReason: null,
   };
   // 开局发牌（走引擎 RNG，保证可回放）
@@ -279,7 +280,22 @@ function resolveTile(ctx: Ctx, seat: number): Resolve {
       }
       if (d.corner === 'airport') { p.flyNext = true; ctx.ev.push({ t: 'airport', seat }); return { stopAgain: true }; }
       return {};
-    case 'card': return drawCard(ctx, seat);
+    case 'card': {
+      const sp = s.specials ? SPECIAL_TILES[i] : undefined;
+      if (sp) {
+        if (sp.kind === 'bonus') {
+          p.cash += sp.amount!;
+          ctx.ev.push({ t: 'special', seat, tile: i, kind: 'bonus', amount: sp.amount });
+          ctx.ev.push({ t: 'bonus', seat, amount: sp.amount! });
+          return {};
+        }
+        ctx.ev.push({ t: 'special', seat, tile: i, kind: 'teleport', to: sp.to });
+        p.pos = sp.to!;
+        ctx.ev.push({ t: 'move', seat, path: [sp.to!], via: 'warp' });
+        return BOARD[p.pos].kind === 'card' ? {} : resolveTile(ctx, seat);
+      }
+      return drawCard(ctx, seat);
+    }
     case 'tax': {
       const fee = Math.round(p.cash * RULES.taxRate);
       if (fee > 0) pay(ctx, seat, null, fee, i, 'tax');

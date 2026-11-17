@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  MATCH, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
+  MATCH, SPECIAL_TILES, THEMES, THEME_IDS, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type BotDifficulty, type GameState, type SeatConfig,
 } from '../src';
 
@@ -1124,5 +1124,47 @@ describe('v0.6 每日任务与成就', () => {
     expect(d.online).toBe(true); expect(d.buys).toBeGreaterThan(0); expect(d.peakAssets).toBeGreaterThanOrEqual(totalAssets(s, 0));
     expect(d.won).toBe(s.winner === 0);
     expect(digestRecord(r, 'nobody', 'x', false)).toBeNull();
+  });
+});
+
+describe('v0.7 特殊格与主题', () => {
+  const mk = (specials: boolean) => createGame({ seed: 5, seats: SEATS, specials });
+  /** 让 0 号玩家从 from 格掷出指定点数 */
+  const roll = (s: GameState, from: number, sum: number) => {
+    const t = structuredClone(s); t.seats[0].pos = from; t.seats[0].forcedSum = sum; t.turn = 0; t.phase = 'roll'; t.pending = null;
+    return t;
+  };
+  it('奖金格：停留领取奖金；未启用特殊格时仍是机会格', () => {
+    const t = roll(mk(true), 26, 2);
+    const cash = t.seats[0].cash;
+    const r = ok(t, 0, { type: 'roll', zone: 1 });
+    expect(r.state.seats[0].pos).toBe(28);
+    expect(r.state.seats[0].cash).toBe(cash + SPECIAL_TILES[28].amount!);
+    expect(r.events.some((e) => e.t === 'special' && e.kind === 'bonus')).toBe(true);
+    const r0 = ok(roll(mk(false), 26, 2), 0, { type: 'roll', zone: 1 });
+    expect(r0.events.some((e) => e.t === 'special')).toBe(false);
+  });
+  it('传送格：停留传送到指定格并结算落地', () => {
+    const t = roll(mk(true), 9, 2);
+    const r = ok(t, 0, { type: 'roll', zone: 1 });
+    expect(r.state.seats[0].pos).toBe(SPECIAL_TILES[11].to);
+    expect(r.events.some((e) => e.t === 'special' && e.kind === 'teleport')).toBe(true);
+    expect(r.events.some((e) => e.t === 'move' && e.via === 'warp')).toBe(true);
+  });
+  it('主题只是表现数据：默认经典，含霓虹夜市，不含规则字段', () => {
+    expect(THEME_IDS).toContain('classic'); expect(THEME_IDS).toContain('neon');
+    expect(THEMES.neon.name).toBe('霓虹夜市');
+  });
+  it('启用特殊格的整局可回放且一致；旧回放（无 specials）仍按原规则重放', () => {
+    for (const specials of [true, false]) {
+      const cfg = { seed: 31, seats: SEATS.map((x) => ({ ...x, isBot: true })), specials };
+      let s = createGame(cfg);
+      const rec = new ReplayRecorder(cfg);
+      while (s.phase !== 'ended') { const a = actorOf(s); const act = botAction(s, a); rec.push(a, act); s = ok(s, a, act).state; }
+      const json = JSON.parse(JSON.stringify(rec.toRecord(s)));
+      expect(!!json.specials).toBe(specials);
+      expect(replayGame(json).state).toEqual(s);
+      expect(new ReplayPlayer(json).frames.at(-1)!.state).toEqual(s);
+    }
   });
 });

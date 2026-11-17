@@ -5,7 +5,7 @@
 import {
   Application, Assets, BlurFilter, Container, Graphics, Matrix, Sprite, Text, type Texture,
 } from 'pixi.js';
-import { BOARD, GROUP_COLOR, type GameState, groupSetOwner, tollOf } from '@dt/shared';
+import { BOARD, GROUP_COLOR, SPECIAL_TILES, THEMES, THEME_DEFAULT, type ThemeId, type GameState, groupSetOwner, tollOf } from '@dt/shared';
 import { A, B, BASEH, CW, GEO, OX, OY, P, S, TH, W, ZT, buildingAnchor, tileCorners, tokenAnchor } from './iso';
 import { ease, hexNum, shade, tween } from '../core/tween';
 import { Token } from './Token';
@@ -37,6 +37,16 @@ export class World {
   private colors: string[] = [];
   /** buildBoard 创建的所有装饰（阴影、广场、地块顶面、角落地标、标签），重建棋盘前统一销毁 */
   private decor: Container[] = [];
+  private theme: ThemeId = THEME_DEFAULT;
+  private bgSp: Sprite | null = null;
+  private lastState: GameState | null = null;
+
+  /** 切换主题：仅表现层；已有棋盘时即时重绘 */
+  setTheme(id: ThemeId) {
+    this.theme = id;
+    if (this.bgSp) this.bgSp.tint = THEMES[id].bgTint;
+    if (this.lastState && this.decor.length) this.buildBoard(this.lastState);
+  }
 
   async init(host: HTMLElement) {
     await this.app.init({ width: 1280, height: 720, backgroundAlpha: 0, antialias: true, resolution: this.res(), autoDensity: true });
@@ -46,7 +56,7 @@ export class World {
     this.tex = loaded as Record<string, Texture>;
     this.app.stage.addChild(this.root);
     const bg = new Sprite(this.tex.bg);
-    bg.width = 1280; bg.height = 720;
+    bg.width = 1280; bg.height = 720; bg.tint = THEMES[this.theme].bgTint; this.bgSp = bg;
     this.objs.sortableChildren = true;
     this.root.addChild(bg, this.boardG, this.ground, this.objs);
     addEventListener('resize', () => this.onResize());
@@ -73,6 +83,8 @@ export class World {
   }
 
   buildBoard(state: GameState) {
+    this.lastState = state;
+    const TH = THEMES[this.theme];
     const g = this.boardG;
     g.clear();
     // 重建（回放跳转 / 重新开局）：先清掉上一次的装饰、建筑与地面特效
@@ -88,11 +100,11 @@ export class World {
     sh.filters = [new BlurFilter({ strength: 14 })];
     this.root.addChildAt(sh, 1);
     this.decor.push(sh as unknown as Container);
-    slab(g, -8, -8, S + 8, S + 8, 0, BASEH, 0xfdf6e7, 0xc9a97a, 0xb8956a, 0xe8d6b4);
+    slab(g, -8, -8, S + 8, S + 8, 0, BASEH, TH.base[0], TH.base[1], TH.base[2], TH.base[3]);
     g.poly([P(CW + 6, CW + 6, BASEH), P(S - CW - 6, CW + 6, BASEH), P(S - CW - 6, S - CW - 6, BASEH), P(CW + 6, S - CW - 6, BASEH)].flat())
-      .fill(0xf3e6c8).stroke({ width: 2, color: 0xe2cfa6 });
+      .fill(TH.inner).stroke({ width: 2, color: TH.innerLine });
     const plaza = planeLayer(BASEH);
-    const logo = txt('掷富天下', 70, 0xbe965a);
+    const logo = txt('掷富天下', 70, TH.logo);
     logo.alpha = 0.2; logo.rotation = -Math.PI / 4; logo.position.set(S / 2 - 120, S / 2 - 120);
     plaza.addChild(logo);
     this.root.addChildAt(plaza, 3);
@@ -108,7 +120,7 @@ export class World {
         slab(g, u0 + gap, v0 + gap, u1 - gap, v1 - gap, BASEH, ZT, hexNum(col), shade(col, -0.25), shade(col, -0.35), 0xffffff);
       } else {
         const col = GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR];
-        slab(g, u0 + gap, v0 + gap, u1 - gap, v1 - gap, BASEH, ZT, 0xfffaf0, shade(col, -0.2), shade(col, -0.32), 0xffffff);
+        slab(g, u0 + gap, v0 + gap, u1 - gap, v1 - gap, BASEH, ZT, TH.tileTop, shade(col, -0.2), shade(col, -0.32), 0xffffff);
       }
     }
     BOARD.forEach((_, i) => {
@@ -130,7 +142,7 @@ export class World {
       this.objs.addChild(sp);
       this.decor.push(sp as unknown as Container);
       const lab = planeLayer(ZT);
-      const t = txt(d.name, 15, 0x3c3c5a); t.alpha = 0.55; t.rotation = Math.PI / 4; t.anchor.set(0.5);
+      const t = txt(d.name, 15, TH.label); t.alpha = 0.55; t.rotation = Math.PI / 4; t.anchor.set(0.5);
       t.position.set(geo.cu - 28, geo.cv + 28);
       lab.addChild(t);
       this.root.addChildAt(lab, this.root.getChildIndex(this.ground));
@@ -146,7 +158,9 @@ export class World {
     c.removeChildren().forEach((x) => x.destroy());
     const d = BOARD[i], geo = GEO[i], t = state.tiles[i];
     if (d.kind === 'corner') return;
-    const col = GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR];
+    const TH = THEMES[this.theme];
+    const spc = state.specials ? SPECIAL_TILES[i] : undefined;
+    const col = spc ? (spc.kind === 'teleport' ? '#06b6d4' : '#e5a800') : GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR];
     const inner = new Container();
     inner.position.set(geo.cu, geo.cv); inner.rotation = geo.th;
     c.addChild(inner);
@@ -168,17 +182,18 @@ export class World {
       m.moveTo(-lw / 2, -ld / 2).lineTo(lw / 2, ld / 2).stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
       inner.addChild(m);
     }
-    const nm = txt(d.name, d.name.length > 3 ? 11 : 14, 0xffffff, 0x000000, 3);
+    const nm = txt(spc ? spc.name : d.name, d.name.length > 3 ? 11 : 14, 0xffffff, 0x000000, 3);
     nm.anchor.set(0.5); nm.y = ld / 2 - band / 2 + 1;
     inner.addChild(nm);
     let sub: Text | null = null;
     if (own) sub = txt(t.mortgaged ? '抵押中' : `${setOwner != null ? '★ ' : ''}过路费 ¥${tollOf(state, i)}万`, 9, shade(own, -0.1));
+    else if (spc) { sub = txt(spc.kind === 'teleport' ? '⇄' : '¥', 32, spc.kind === 'teleport' ? 0x06b6d4 : 0xe5a800); sub.y = -ld * 0.16; }
     else if (d.kind === 'card') { sub = txt('?', 34, hexNum(col)); sub.y = -ld * 0.16; }
     else if (d.kind === 'tax') sub = txt('税', 22, 0x64748b);
     else if (d.kind === 'tour') sub = txt(`观光地 ¥${d.price}万`, 10, 0x0b6e9e);
-    else sub = txt(`¥${d.price}万`, 10, 0x8a90a8);
+    else sub = txt(`¥${d.price}万`, 10, TH.subText);
     sub.anchor.set(0.5);
-    if (own) sub.y = ld / 2 - band - 7; else if (d.kind !== 'card') sub.y = -ld * 0.08;
+    if (own) sub.y = ld / 2 - band - 7; else if (d.kind !== 'card' && !spc) sub.y = -ld * 0.08;
     inner.addChild(sub);
   }
 

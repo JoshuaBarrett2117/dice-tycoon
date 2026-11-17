@@ -13,6 +13,8 @@ export interface GameRecord {
   engineVersion: number;
   seed: number;
   maxRounds?: number;
+  /** v0.7：本局启用特殊格（缺省 = 旧回放，按无特殊格重放） */
+  specials?: boolean;
   /** 座位配置（含可选的 accountId 透传字段，引擎不校验） */
   seats: SeatConfig[];
   /** 按发生顺序的全部合法操作（含机器人与托管） */
@@ -48,6 +50,7 @@ export class ReplayRecorder {
   toRecord(state?: GameState): GameRecord {
     const rec: GameRecord = {
       format: REPLAY_FORMAT, engineVersion: 2, seed: this.cfg.seed >>> 0, maxRounds: this.cfg.maxRounds,
+      ...(this.cfg.specials ? { specials: true } : {}),
       seats: structuredClone(this.cfg.seats), actions: structuredClone(this.actions),
     };
     if (state) {
@@ -61,7 +64,7 @@ export class ReplayRecorder {
 /** 重放一份记录，返回最终状态与完整事件流；遇到非法操作抛错（说明记录被篡改或引擎不兼容） */
 export function replayGame(rec: GameRecord): { state: GameState; events: GameEvent[] } {
   if (rec.format !== REPLAY_FORMAT) throw new Error('不是有效的回放文件');
-  let state = createGame({ seed: rec.seed, seats: rec.seats, maxRounds: rec.maxRounds });
+  let state = createGame({ seed: rec.seed, seats: rec.seats, maxRounds: rec.maxRounds, specials: rec.specials });
   const events: GameEvent[] = [...openingEvents(state)];
   rec.actions.forEach((a, i) => {
     const r = applyAction(state, a.seat, a.action);
@@ -86,7 +89,7 @@ export class ReplayPlayer {
   constructor(readonly record: GameRecord) {
     if (record?.format !== REPLAY_FORMAT) throw new Error('不是有效的回放文件');
     if (!Array.isArray(record.seats) || !Array.isArray(record.actions)) throw new Error('回放文件已损坏');
-    let state = createGame({ seed: record.seed, seats: record.seats, maxRounds: record.maxRounds });
+    let state = createGame({ seed: record.seed, seats: record.seats, maxRounds: record.maxRounds, specials: record.specials });
     this.frames = [{ index: 0, state, events: [...openingEvents(state)], seat: null, action: null }];
     record.actions.forEach((a, i) => {
       const r = applyAction(state, a.seat, a.action);

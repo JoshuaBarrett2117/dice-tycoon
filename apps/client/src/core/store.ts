@@ -1,5 +1,5 @@
 import {
-  PROFILE, QUESTS, addHistory, parseQuests, serializeQuests, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
+  PROFILE, QUESTS, THEMES, THEME_DEFAULT, THEME_KEY, type ThemeId, addHistory, parseQuests, serializeQuests, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
   type GameRecord, type HistoryEntry, type Profile, type QuestsState,
 } from '@dt/shared';
 
@@ -42,3 +42,7 @@ export function loadReplay(id: string): GameRecord | null {
 /** 每日任务与成就（v0.6）：与档案同在 localStorage，读时按本地日期自动跨日重置 */
 export const loadQuests = (): QuestsState => parseQuests(get(QUESTS.key), Date.now());
 export const saveQuests = (q: QuestsState) => set(QUESTS.key, serializeQuests(q));
+
+/** 棋盘主题（v0.7）：只存本地，读失败回落默认 */
+export const loadTheme = (): ThemeId => { const v = get(THEME_KEY); return v && v in THEMES ? (v as ThemeId) : THEME_DEFAULT; };
+export const saveTheme = (id: ThemeId) => set(THEME_KEY, id);

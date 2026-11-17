@@ -24,6 +24,7 @@ export const ANIM = {
   bankrupt: 1500,
   card: 1400,
   bonus: 600,
+  special: 900,
   festival: 1000,
   airport: 1000,
   itemGained: 600,
