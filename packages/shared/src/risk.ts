@@ -32,7 +32,8 @@ export class ActionGuard {
     const key = JSON.stringify(action);
     const prev = this.last.get(sessionId);
     if (prev) {
-      if (key === prev.key && now - prev.at < RISK.duplicateMs / this.speed) return 'duplicate';
+      // 重复判定不随加速缩放：客户端响应延迟不会因服务端加速而变短；加速模式（仅测试用）下关闭该项
+      if (this.speed <= 1 && key === prev.key && now - prev.at < RISK.duplicateMs) return 'duplicate';
       if (now - prev.at < RISK.minIntervalMs / this.speed) return 'too_fast';
     }
     const w = (this.window.get(sessionId) ?? []).filter((t) => now - t < RISK.windowMs / this.speed);

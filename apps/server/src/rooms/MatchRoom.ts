@@ -179,7 +179,7 @@ export class MatchRoom extends Room {
     const seat = this.seatOf(client.sessionId);
     if (seat < 0) { this.reject('not_seated', -1, action); client.send('error', { message: '你不在本局座位上' }); return; }
     const why = this.guard.check(client.sessionId, action, Date.now());
-    if (why) { this.reject(why, seat, action); return; } // 重复/超速：静默忽略，只记日志
+    if (why) { this.reject(why, seat, action); client.send('error', { message: '操作过快或重复，请稍后再试' }); return; } // 重复/超速：记日志并回 error，客户端不再干等超时
     this.apply(seat, action, client);
   }
 
