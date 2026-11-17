@@ -171,3 +171,30 @@ export const BOT_LEVELS = {
   hard:   { noise: 0,   itemUse: 1,    group: 2, toll: 1.6, reserveFrac: 0.15, reserveMin: 60, auctionBase: 1.0, auctionGroup: 0.6, mortgageAt: 1.4, redeemMin: 100, skillUse: 1 },
 } as const;
 export const BOT_DEFAULT_DIFFICULTY = 'normal' as const;
+
+/** 每日任务与成就（v0.6，提案值）。只读对局结果，不影响规则与经济 */
+export const QUESTS = {
+  /** 每天抽取的任务数 */
+  dailyCount: 3,
+  key: 'dt:quests:v1',
+  /** 已处理对局 id 的去重窗口 */
+  seenLimit: 100,
+  /** 任务池：metric 为对局摘要里的字段；target 为当天累计目标 */
+  pool: [
+    { id: 'win1', title: '赢下 1 局', metric: 'wins', target: 1, badge: '日胜者' },
+    { id: 'play3', title: '完成 3 局', metric: 'games', target: 3, badge: '勤勉玩家' },
+    { id: 'buy5', title: '买下 5 处地产', metric: 'buys', target: 5, badge: '置业新秀' },
+    { id: 'event1', title: '经历 1 次全局事件', metric: 'events', target: 1, badge: '见多识广' },
+    { id: 'online1', title: '完成 1 局联机', metric: 'online', target: 1, badge: '江湖行走' },
+    { id: 'set1', title: '凑齐 1 次色组独占', metric: 'sets', target: 1, badge: '色组猎手' },
+  ],
+  /** 成就：metric 为终身累计（peak 类取最大值） */
+  achievements: [
+    { id: 'firstWin', title: '首胜', desc: '赢下第 1 局', metric: 'wins', target: 1, badge: '🏆 初出茅庐' },
+    { id: 'win10', title: '十胜', desc: '累计赢下 10 局', metric: 'wins', target: 10, badge: '🥇 常胜将军' },
+    { id: 'set1', title: '色组独占', desc: '在一局中凑齐一整个色组', metric: 'sets', target: 1, badge: '🎨 色组大亨' },
+    { id: 'assets1000', title: '资产破千', desc: '单局总资产达到 1000 万', metric: 'peakAssets', target: 1000, badge: '💰 千万富翁' },
+    { id: 'play20', title: '身经百战', desc: '累计完成 20 局', metric: 'games', target: 20, badge: '🎲 老玩家' },
+    { id: 'online5', title: '联机达人', desc: '累计完成 5 局联机', metric: 'online', target: 5, badge: '🌐 联机达人' },
+  ],
+} as const;

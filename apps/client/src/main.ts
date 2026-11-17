@@ -1,6 +1,6 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, computeStats, entryFromRecord, type BotDifficulty, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
-import { deleteHistory, loadHistory, loadProfile, loadReplay, pushHistory, saveProfile } from './core/store';
+import { CHARACTERS, CHAR_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, pushHistory, saveProfile } from './core/store';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -117,10 +117,13 @@ function showProfile(note = '') {
   const o = overlay('lobby');
   const hist = loadHistory();
   const st = computeStats(hist);
+  const qs = loadQuests();
   const d = (t: number) => new Date(t).toLocaleString('zh-CN', { hour12: false });
   o.innerHTML = `<div class="panel"><div class="ttl">档案与历史</div>
     <div class="hint"><b>${esc(profile.name)}</b> · ${CHARACTERS[profile.charId].name} · 建档于 ${d(profile.createdAt)}<br>
     总局数 <b>${st.games}</b> · 胜场 <b>${st.wins}</b> · 胜率 <b>${(st.winRate * 100).toFixed(0)}%</b>　（仅保存在本浏览器）</div>
+    <div class="hint"><b>今日任务</b>（按本地日期重置）<br>${dailyView(qs).map((q) => `${q.done ? '✅' : '⬜'} ${q.title}　${q.progress}/${q.target}${q.done ? '　🎖 ' + q.badge : ''}`).join('<br>')}</div>
+    <div class="hint"><b>成就</b>　已点亮 ${achievementView(qs).filter((a) => a.unlocked).length}/${achievementView(qs).length}<br>${achievementView(qs).map((a) => a.unlocked ? `${a.badge}　${a.title}（${a.desc}）` : `🔒 ${a.title}　${a.progress}/${a.target}（${a.desc}）`).join('<br>')}</div>
     <div class="rooms" id="hist">${hist.length ? hist.map((h) => `<div class="rm"><span>${d(h.at)} · ${h.kind === 'online' ? '联机' : '单机'} · ${h.rank ? `第 ${h.rank} 名` : '—'}${h.won ? ' 🏆' : ''} · ${h.winner ? esc(h.winner) + ' 获胜' : ''} · ${h.rounds} 回合</span><button data-p="${h.id}">回放</button><button data-e="${h.id}">导出</button><button data-d="${h.id}">删除</button></div>`).join('') : '暂无对局记录，打完一局就会出现在这里'}</div>
     <button class="link" id="back">返回</button><div class="err">${esc(note)}</div></div>`;
   o.querySelector<HTMLButtonElement>('#back')!.onclick = () => showMenu();
@@ -291,6 +294,16 @@ async function startGame(src: GameSource, kind?: 'solo' | 'online') {
       try {
         const e = entryFromRecord(rec, accountId, kind, Date.now());
         if (e) pushHistory(e, rec);
+        const dg = e && digestRecord(rec, accountId, e.id, kind === 'online');
+        if (dg) {
+          const r = applyDigest(loadQuests(), dg, Date.now());
+          saveQuests(r.state);
+          const lines = [...r.newDaily.map((q) => `✅ 每日任务完成：${q.title}　🎖 ${q.badge}`), ...r.newAchievements.map((a) => `🏅 解锁成就：${a.badge} ${a.title}`)];
+          if (lines.length) {
+            const rb = document.querySelector('#result .panel .rb');
+            rb?.insertAdjacentHTML('beforebegin', `<div class="sub" style="margin:8px 0">${lines.map(esc).join('<br>')}</div>`);
+          }
+        }
       } catch (err) { console.warn('[history]', err); }
     } : undefined);
   AU.startBGM();

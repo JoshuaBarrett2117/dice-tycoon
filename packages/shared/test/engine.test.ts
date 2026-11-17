@@ -1056,3 +1056,73 @@ describe('v0.5 机器人难度分级', () => {
     expect(replayGame(record).state).toEqual(s);
   });
 });
+
+import { QUESTS, achievementView, applyDigest, dailyView, digestRecord, freshQuests, parseQuests, pickDaily, rollDay, serializeQuests, type GameDigest } from '../src';
+
+describe('v0.6 每日任务与成就', () => {
+  const T0 = new Date(2026, 10, 17, 10, 0).getTime();
+  const T1 = new Date(2026, 10, 18, 9, 0).getTime();
+  const dg = (id: string, o: Partial<GameDigest> = {}): GameDigest => ({ id, won: false, online: false, buys: 0, events: 0, sets: 0, peakAssets: 300, ...o });
+  /** 固定当天任务为已知集合，便于断言 */
+  const withDaily = (ids: string[]) => ({ ...freshQuests(T0), dailyIds: ids });
+
+  it('每日抽取：确定性、数量、不重复', () => {
+    const a = pickDaily('2026-11-17');
+    expect(a).toEqual(pickDaily('2026-11-17'));
+    expect(a).toHaveLength(QUESTS.dailyCount);
+    expect(new Set(a).size).toBe(a.length);
+    const days = new Set(Array.from({ length: 20 }, (_, i) => pickDaily('2026-12-' + i).join()));
+    expect(days.size).toBeGreaterThan(1);
+  });
+  it('任务进度由对局累积并只计一次', () => {
+    let s = withDaily(['win1', 'buy5', 'play3']);
+    let r = applyDigest(s, dg('g1', { won: true, buys: 3 }), T0);
+    expect(dailyView(r.state).map((q) => [q.id, q.progress, q.done])).toEqual([['win1', 1, true], ['buy5', 3, false], ['play3', 1, false]]);
+    expect(r.newDaily.map((q) => q.id)).toEqual(['win1']);
+    const dup = applyDigest(r.state, dg('g1', { won: true, buys: 3 }), T0);
+    expect(dup.state).toEqual(r.state); expect(dup.newDaily).toEqual([]);
+    r = applyDigest(r.state, dg('g2', { buys: 2 }), T0);
+    expect(dailyView(r.state).find((q) => q.id === 'buy5')!.done).toBe(true);
+    expect(r.newDaily.map((q) => q.id)).toEqual(['buy5']);
+    s = r.state; expect(s.life.games).toBe(2);
+  });
+  it('跨本地日期重置当天任务，终身与成就保留', () => {
+    const r = applyDigest(withDaily(['win1']), dg('g1', { won: true }), T0);
+    const next = rollDay(r.state, T1);
+    expect(next.day).toBe('2026-11-18');
+    expect(next.dailyDone).toEqual([]); expect(next.daily).toEqual({});
+    expect(next.life.wins).toBe(1); expect(next.unlocked.firstWin).toBeTruthy();
+    expect(rollDay(next, T1)).toBe(next);
+    const loaded = parseQuests(serializeQuests(r.state), T1);
+    expect(loaded.dailyDone).toEqual([]); expect(loaded.life.wins).toBe(1);
+  });
+  it('成就达成条件与点亮状态（只点亮一次）', () => {
+    let s = freshQuests(T0);
+    let r = applyDigest(s, dg('a', { won: true, sets: 1, peakAssets: 1200 }), T0);
+    expect(r.newAchievements.map((a) => a.id).sort()).toEqual(['assets1000', 'firstWin', 'set1']);
+    expect(achievementView(r.state).filter((a) => a.unlocked)).toHaveLength(3);
+    r = applyDigest(r.state, dg('b', { won: true, sets: 1, peakAssets: 1500 }), T0);
+    expect(r.newAchievements).toEqual([]);
+    s = r.state;
+    for (let i = 0; i < 8; i++) s = applyDigest(s, dg('w' + i, { won: true }), T0).state;
+    expect(s.unlocked.win10).toBeTruthy();
+    expect(achievementView(s).find((a) => a.id === 'win10')!.unlocked).toBe(true);
+  });
+  it('脏数据安全重建', () => {
+    for (const bad of [null, '', '{x', '[]', '{"v":2}', '{"v":1,"day":1}']) expect(parseQuests(bad, T0).dailyIds).toHaveLength(QUESTS.dailyCount);
+  });
+  it('由对局记录推导摘要（纯函数、确定性），未结束返回 null', () => {
+    const seats = SEATS.map((x, i) => ({ ...x, isBot: true, accountId: 'acc' + i }));
+    const cfg = { seed: 77, seats };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    expect(digestRecord(rec.toRecord(s), 'acc0', 'x', false)).toBeNull();
+    while (s.phase !== 'ended') { const a = actorOf(s); const act = botAction(s, a); rec.push(a, act); s = ok(s, a, act).state; }
+    const r = rec.toRecord(s);
+    const d = digestRecord(r, 'acc0', 'x', true)!;
+    expect(d).toEqual(digestRecord(r, 'acc0', 'x', true));
+    expect(d.online).toBe(true); expect(d.buys).toBeGreaterThan(0); expect(d.peakAssets).toBeGreaterThanOrEqual(totalAssets(s, 0));
+    expect(d.won).toBe(s.winner === 0);
+    expect(digestRecord(r, 'nobody', 'x', false)).toBeNull();
+  });
+});

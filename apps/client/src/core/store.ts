@@ -1,6 +1,6 @@
 import {
-  PROFILE, addHistory, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
-  type GameRecord, type HistoryEntry, type Profile,
+  PROFILE, QUESTS, addHistory, parseQuests, serializeQuests, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
+  type GameRecord, type HistoryEntry, type Profile, type QuestsState,
 } from '@dt/shared';
 
 /** localStorage 封装：任何读写失败（被禁用 / 配额满 / 脏数据）都安全降级，不抛错 */
@@ -38,3 +38,7 @@ export function loadReplay(id: string): GameRecord | null {
   if (!raw) return null;
   try { return JSON.parse(raw) as GameRecord; } catch { return null; }
 }
+
+/** 每日任务与成就（v0.6）：与档案同在 localStorage，读时按本地日期自动跨日重置 */
+export const loadQuests = (): QuestsState => parseQuests(get(QUESTS.key), Date.now());
+export const saveQuests = (q: QuestsState) => set(QUESTS.key, serializeQuests(q));
