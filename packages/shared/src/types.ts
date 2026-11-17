@@ -20,7 +20,25 @@ export interface PlayerState {
   flyNext: boolean;
   /** 免过路费护盾（机会卡） */
   shield: boolean;
+  /** 手牌（道具卡），上限 RULES.itemMax */
+  items: ItemId[];
+  /** 主动技能剩余冷却（自己的回合数），0 = 可用 */
+  skillCd: number;
+  /** 双倍收租卡：至自己下回合开始前，收取的过路费 ×RULES.doubleTollMult */
+  doubleToll: boolean;
+  /** 铁算盘「金算盘」：至自己下回合开始前，过路费 ×RULES.wangSkillToll */
+  wangToll: boolean;
+  /** 小狸「闪电收购」：下一次收购价 ×RULES.liSkillTakeover */
+  liDiscount: boolean;
+  /** 阿星「完美预判」：下一次掷骰必定命中所选区间 */
+  xingPerfect: boolean;
+  /** 遥控骰子：下一次掷骰的指定总点数 */
+  forcedSum: number | null;
 }
+
+export type ItemId = 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport';
+
+export interface Roadblock { tile: number; owner: number }
 
 export interface TileState {
   owner: number | null;
@@ -28,7 +46,7 @@ export interface TileState {
   lv: number;
 }
 
-export type PendingKind = 'buy' | 'upgrade' | 'takeover' | 'festival' | 'fly';
+export type PendingKind = 'buy' | 'upgrade' | 'takeover' | 'festival' | 'fly' | 'item';
 
 export interface PendingOption {
   /** buy/upgrade：目标等级；takeover：1；festival/fly：目标格子 */
@@ -39,6 +57,8 @@ export interface PendingOption {
 
 export interface Pending {
   kind: PendingKind;
+  /** kind='item'：正在选目标的道具 */
+  item?: ItemId;
   seat: number;
   tile: number | null;
   options: PendingOption[];
@@ -60,6 +80,8 @@ export interface GameState {
   phase: Phase;
   pending: Pending | null;
   festivalTile: number | null;
+  /** 场上的路障 */
+  roadblocks: Roadblock[];
   winner: number | null;
   winReason: WinReason | null;
 }
@@ -67,7 +89,11 @@ export interface GameState {
 export type Action =
   | { type: 'roll'; zone: number }
   /** option = pending.options 下标；-1 表示放弃 */
-  | { type: 'choose'; option: number };
+  | { type: 'choose'; option: number }
+  /** 掷骰前使用道具；需要目标的道具若不带 target 则进入 pending(kind='item') 选目标。dice 的 target 为总点数 2–12，其余为格子序号 */
+  | { type: 'useItem'; item: ItemId; target?: number }
+  /** 掷骰前使用角色主动技能 */
+  | { type: 'useSkill' };
 
 export type CardId = 'bonus' | 'fine' | 'toStart' | 'island' | 'freeUpgrade' | 'shield';
 
@@ -92,6 +118,12 @@ export type GameEvent =
   | { t: 'bonus'; seat: number; amount: number }
   | { t: 'festival'; seat: number; tile: number }
   | { t: 'airport'; seat: number }
+  | { t: 'itemGained'; seat: number; item: ItemId }
+  | { t: 'itemUsed'; seat: number; item: ItemId; target: number | null }
+  | { t: 'skillUsed'; seat: number; charId: CharId; text: string }
+  | { t: 'roadblockPlaced'; seat: number; tile: number }
+  | { t: 'roadblockHit'; seat: number; owner: number; tile: number }
+  | { t: 'demolish'; seat: number; from: number; tile: number; lv: number }
   | { t: 'prompt'; pending: Pending }
   | { t: 'decline'; seat: number; kind: string }
   | { t: 'end'; winner: number; reason: WinReason };

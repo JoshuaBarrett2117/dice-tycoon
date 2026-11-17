@@ -7,10 +7,10 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, ISLAND_INDEX, SIDES, TOURS, isOwnable } from './board';
 import { CHARACTERS } from './characters';
-import { RULES, ZONES } from './config';
+import { ITEM_IDS, RULES, ZONES } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
-  Action, ApplyResult, CardId, GameConfig, GameEvent, GameState, Pending, PendingOption, PlayerState, WinReason,
+  Action, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, WinReason,
 } from './types';
 
 interface Ctx { s: GameState; ev: GameEvent[] }
@@ -23,13 +23,17 @@ export function createGame(cfg: GameConfig): GameState {
   const seats: PlayerState[] = cfg.seats.map((c, seat) => ({
     seat, id: c.id, name: c.name, charId: c.charId, isBot: !!c.isBot,
     cash: RULES.startCash, pos: 0, islandTurns: 0, doubles: 0, bankrupt: false, flyNext: false, shield: false,
+    items: [], skillCd: 0, doubleToll: false, wangToll: false, liDiscount: false, xingPerfect: false, forcedSum: null,
   }));
-  return {
+  const g: GameState = {
     version: 1, seed: cfg.seed >>> 0, rng: cfg.seed >>> 0, seq: 0, seats,
     tiles: BOARD.map(() => ({ owner: null, lv: 0 })),
     turn: 0, round: 1, maxRounds: cfg.maxRounds ?? RULES.maxRounds,
-    phase: 'roll', pending: null, festivalTile: null, winner: null, winReason: null,
+    phase: 'roll', pending: null, festivalTile: null, roadblocks: [], winner: null, winReason: null,
   };
+  // 开局发牌（走引擎 RNG，保证可回放）
+  for (const p of g.seats) for (let k = 0; k < RULES.itemStart; k++) p.items.push(pick(g, ITEM_IDS));
+  return g;
 }
 
 // ───────────────────────── 计价 ─────────────────────────
@@ -53,7 +57,8 @@ export function buildCost(s: GameState, seat: number, i: number, from: number, t
 export function tollOf(s: GameState, i: number): number {
   const d = BOARD[i], t = s.tiles[i];
   if (t.owner == null) return 0;
-  const bonus = 1 + CHARACTERS[s.seats[t.owner].charId].tollBonus;
+  const op = s.seats[t.owner];
+  const bonus = (1 + CHARACTERS[op.charId].tollBonus) * (op.doubleToll ? RULES.doubleTollMult : 1) * (op.wangToll ? RULES.wangSkillToll : 1);
   if (d.kind === 'tour') {
     const n = TOURS.filter((x) => s.tiles[x].owner === t.owner).length;
     return Math.round(RULES.tourTollBase * 2 ** (n - 1) * bonus);
@@ -64,7 +69,8 @@ export function tollOf(s: GameState, i: number): number {
 
 export function takeoverCost(s: GameState, seat: number, i: number): number {
   const disc = CHARACTERS[s.seats[seat].charId].takeoverDiscount;
-  return Math.round(investedValue(s, i) * RULES.takeoverMult * (1 - disc));
+  const li = s.seats[seat].liDiscount ? RULES.liSkillTakeover : 1;
+  return Math.round(investedValue(s, i) * RULES.takeoverMult * (1 - disc) * li);
 }
 
 export function totalAssets(s: GameState, seat: number): number {
@@ -93,6 +99,12 @@ export function applyAction(state: GameState, seat: number, action: Action): App
     const o = action.option;
     if (!Number.isInteger(o) || o < -1 || o >= s.pending.options.length) return { ok: false, error: '无效的选项' };
     doChoose(ctx, seat, o);
+  } else if (action.type === 'useItem') {
+    const err = useItem(ctx, seat, action.item, action.target);
+    if (err) return { ok: false, error: err };
+  } else if (action.type === 'useSkill') {
+    const err = useSkill(ctx, seat);
+    if (err) return { ok: false, error: err };
   } else {
     return { ok: false, error: '未知操作' };
   }
@@ -108,7 +120,17 @@ export function openingEvents(s: GameState): GameEvent[] {
 // ───────────────────────── 掷骰与移动 ─────────────────────────
 function rollDice(ctx: Ctx, p: PlayerState, zone: number): { dice: [number, number]; hit: boolean } {
   const z = ZONES[zone];
-  if (nextFloat(ctx.s) < controlOf(p)) {
+  if (p.forcedSum != null) {
+    const sum = p.forcedSum;
+    p.forcedSum = null;
+    p.xingPerfect = false;
+    const pairs: [number, number][] = [];
+    for (let a = 1; a <= 6; a++) { const b = sum - a; if (b >= 1 && b <= 6) pairs.push([a, b]); }
+    return { dice: pick(ctx.s, pairs), hit: sum >= z.lo && sum <= z.hi };
+  }
+  const perfect = p.xingPerfect;
+  p.xingPerfect = false;
+  if (nextFloat(ctx.s) < (perfect ? 1 : controlOf(p))) {
     const sum = nextInt(ctx.s, z.lo, z.hi);
     const pairs: [number, number][] = [];
     for (let a = 1; a <= 6; a++) { const b = sum - a; if (b >= 1 && b <= 6) pairs.push([a, b]); }
@@ -157,14 +179,29 @@ function walk(ctx: Ctx, seat: number, steps: number) {
   for (let k = 0; k < steps; k++) {
     p.pos = (p.pos + 1) % BOARD_SIZE;
     path.push(p.pos);
+    const rb = ctx.s.roadblocks.findIndex((r) => r.tile === p.pos && r.owner !== seat);
+    if (rb >= 0) {
+      const owner = ctx.s.roadblocks[rb].owner;
+      ctx.s.roadblocks.splice(rb, 1);
+      ctx.ev.push({ t: 'move', seat, path, via: 'walk' });
+      ctx.ev.push({ t: 'roadblockHit', seat, owner, tile: p.pos });
+      if (path.includes(0)) paySalary(ctx, seat);
+      return;
+    }
   }
   ctx.ev.push({ t: 'move', seat, path, via: 'walk' });
   if (path.includes(0)) paySalary(ctx, seat);
 }
 
 function paySalary(ctx: Ctx, seat: number) {
-  ctx.s.seats[seat].cash += RULES.salary;
+  const p = ctx.s.seats[seat];
+  p.cash += RULES.salary;
   ctx.ev.push({ t: 'salary', seat, amount: RULES.salary });
+  if (p.items.length < RULES.itemMax) {
+    const item = pick(ctx.s, ITEM_IDS);
+    p.items.push(item);
+    ctx.ev.push({ t: 'itemGained', seat, item });
+  }
 }
 
 function sendToIsland(ctx: Ctx, seat: number) {
@@ -320,9 +357,126 @@ function liquidate(ctx: Ctx, seat: number, need: number) {
 
 function goBankrupt(ctx: Ctx, seat: number) {
   const s = ctx.s, p = s.seats[seat];
-  p.bankrupt = true; p.cash = 0;
+  p.bankrupt = true; p.cash = 0; p.items = [];
+  s.roadblocks = s.roadblocks.filter((r) => r.owner !== seat);
   s.tiles.forEach((t, i) => { if (t.owner === seat) { s.tiles[i] = { owner: null, lv: 0 }; if (s.festivalTile === i) s.festivalTile = null; } });
   ctx.ev.push({ t: 'bankrupt', seat });
+}
+
+// ───────────────────────── 道具与技能 ─────────────────────────
+const TARGETED: ItemId[] = ['dice', 'roadblock', 'demolish', 'freeBuild', 'teleport'];
+
+/** 可选目标（dice 为总点数；其余为格子序号） */
+export function itemTargets(s: GameState, seat: number, item: ItemId): number[] {
+  const p = s.seats[seat];
+  switch (item) {
+    case 'dice': return [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    case 'roadblock': {
+      const out: number[] = [];
+      for (let n = 1; n <= RULES.roadblockRange; n++) {
+        const i = (p.pos + n) % BOARD_SIZE;
+        if (!s.roadblocks.some((r) => r.tile === i)) out.push(i);
+      }
+      return out;
+    }
+    case 'demolish':
+      return s.tiles.map((t, i) => (t.owner != null && t.owner !== seat && !s.seats[t.owner].bankrupt && BOARD[i].kind === 'city' && t.lv >= 1 && t.lv <= 3 ? i : -1)).filter((i) => i >= 0);
+    case 'freeBuild': return upgradableCities(s, seat);
+    case 'teleport': return BOARD.filter((d) => d.index !== p.pos && !(d.kind === 'corner' && d.corner === 'island')).map((d) => d.index);
+    default: return [];
+  }
+}
+
+function upgradableCities(s: GameState, seat: number) {
+  return ownCities(s, seat).filter((i) => s.tiles[i].lv < 3);
+}
+
+function itemLabel(item: ItemId, v: number): string {
+  if (item === 'dice') return `指定点数 ${v}`;
+  return BOARD[v].name;
+}
+
+function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string | null {
+  const s = ctx.s, p = s.seats[seat];
+  if (s.phase !== 'roll') return '当前不能使用道具';
+  if (!(ITEM_IDS as readonly string[]).includes(item)) return '未知道具';
+  if (p.items.indexOf(item) < 0) return '你没有这张道具';
+  if (item === 'teleport' && p.islandTurns > 0) return '在无人岛上无法传送';
+  if (item === 'dice' && p.forcedSum != null) return '遥控骰子已在生效';
+  if (item === 'shield' && p.shield) return '护盾已在生效';
+  if (item === 'doubleToll' && p.doubleToll) return '双倍收租已在生效';
+  const targets = itemTargets(s, seat, item);
+  if (TARGETED.includes(item)) {
+    if (!targets.length) return '没有可选目标';
+    if (target === undefined) {
+      const options = targets.map((v) => ({ value: v, cost: 0, label: itemLabel(item, v) }));
+      setPending(ctx, { kind: 'item', item, seat, tile: null, options, again: false });
+      return null;
+    }
+    if (!targets.includes(target)) return '无效的目标';
+  }
+  p.items.splice(p.items.indexOf(item), 1);
+  ctx.ev.push({ t: 'itemUsed', seat, item, target: target ?? null });
+  switch (item) {
+    case 'dice': p.forcedSum = target!; break;
+    case 'roadblock':
+      s.roadblocks.push({ tile: target!, owner: seat });
+      ctx.ev.push({ t: 'roadblockPlaced', seat, tile: target! });
+      break;
+    case 'shield': p.shield = true; break;
+    case 'doubleToll': p.doubleToll = true; break;
+    case 'demolish': {
+      const t = s.tiles[target!], lv = t.lv - 1;
+      t.lv = lv;
+      ctx.ev.push({ t: 'demolish', seat, from: t.owner!, tile: target!, lv });
+      break;
+    }
+    case 'freeBuild': freeUpgrade(ctx, seat, target!); break;
+    case 'teleport': {
+      const dest = target!, passStart = dest < p.pos;
+      p.pos = dest;
+      ctx.ev.push({ t: 'move', seat, path: [dest], via: 'fly' });
+      if (passStart) paySalary(ctx, seat);
+      // 传送后仍可继续掷骰（again=true）；落到无人岛等会自行结束回合
+      landAndFinish(ctx, seat, true);
+      break;
+    }
+  }
+  return null;
+}
+
+function freeUpgrade(ctx: Ctx, seat: number, i: number) {
+  const t = ctx.s.tiles[i], from = t.lv;
+  t.lv++;
+  ctx.ev.push({ t: 'upgrade', seat, tile: i, from, lv: t.lv, cost: 0 });
+}
+
+function useSkill(ctx: Ctx, seat: number): string | null {
+  const s = ctx.s, p = s.seats[seat];
+  if (s.phase !== 'roll') return '当前不能使用技能';
+  if (p.skillCd > 0) return `技能冷却中（还需 ${p.skillCd} 回合）`;
+  const def = CHARACTERS[p.charId];
+  p.skillCd = RULES.skillCooldown;
+  ctx.ev.push({ t: 'skillUsed', seat, charId: p.charId, text: def.active.name });
+  switch (p.charId) {
+    case 'jin': {
+      const amount = Math.min(RULES.jinSkillCap, Math.round(totalAssets(s, seat) * RULES.jinSkillRate));
+      p.cash += amount;
+      ctx.ev.push({ t: 'bonus', seat, amount });
+      break;
+    }
+    case 'li': p.liDiscount = true; break;
+    case 'wang': p.wangToll = true; break;
+    case 'xing': p.xingPerfect = true; break;
+    case 'panda': {
+      // 确定性：升级地价最高的可升城市（同价取序号小者）
+      const c = upgradableCities(s, seat).sort((a, b) => BOARD[b].price - BOARD[a].price || a - b);
+      if (c.length) freeUpgrade(ctx, seat, c[0]);
+      else { p.cash += RULES.pandaSkillCash; ctx.ev.push({ t: 'bonus', seat, amount: RULES.pandaSkillCash }); }
+      break;
+    }
+  }
+  return null;
 }
 
 // ───────────────────────── 选择 ─────────────────────────
@@ -336,6 +490,13 @@ function doChoose(ctx: Ctx, seat: number, idx: number) {
   const s = ctx.s, pend = s.pending!, p = s.seats[seat];
   s.pending = null;
   const again = pend.again;
+  if (pend.kind === 'item') {
+    s.phase = 'roll';
+    if (idx === -1) { ctx.ev.push({ t: 'decline', seat, kind: 'item' }); return; }
+    const err = useItem(ctx, seat, pend.item!, pend.options[idx].value);
+    if (err) throw new Error(err);
+    return;
+  }
   if (idx === -1) {
     ctx.ev.push({ t: 'decline', seat, kind: pend.kind });
     // 放弃起飞 = 正常掷骰
@@ -367,6 +528,7 @@ function doChoose(ctx: Ctx, seat: number, idx: number) {
       p.cash -= o.cost;
       s.seats[owner].cash += o.cost;
       s.tiles[i].owner = seat;
+      p.liDiscount = false;
       ctx.ev.push({ t: 'takeover', seat, from: owner, tile: i, cost: o.cost });
       // 收购后可以顺势加盖
       if (!checkWin(ctx)) {
@@ -419,6 +581,8 @@ function endTurn(ctx: Ctx) {
 function startTurn(ctx: Ctx, seat: number) {
   const s = ctx.s, p = s.seats[seat];
   s.turn = seat; p.doubles = 0; s.pending = null; s.phase = 'roll';
+  p.doubleToll = false; p.wangToll = false; p.liDiscount = false; p.xingPerfect = false; p.forcedSum = null;
+  if (p.skillCd > 0) p.skillCd--;
   ctx.ev.push({ t: 'turn', seat, round: s.round });
   if (p.flyNext) {
     p.flyNext = false;

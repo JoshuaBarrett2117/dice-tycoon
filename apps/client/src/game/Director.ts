@@ -3,7 +3,7 @@
  * 播完后以权威快照校正画面，再根据状态决定是否等待本地玩家输入。
  */
 import {
-  BOARD, CHARACTERS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
+  BOARD, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
   controlOf, tollOf, totalAssets,
   type GameEvent, type GameState, type Pending, type WinReason,
 } from '@dt/shared';
@@ -241,6 +241,34 @@ export class Director {
         H.toast('环球航班：下回合可飞往任意格', GRAD.green);
         await sleep(900);
         break;
+      case 'itemGained':
+        H.toast(`获得道具：${ITEMS[e.item].name}`, GRAD.green);
+        await sleep(500);
+        break;
+      case 'itemUsed':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 使用了 ${ITEMS[e.item].name}`, GRAD.purple);
+        await sleep(800);
+        break;
+      case 'skillUsed':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 发动技能「${e.text}」`, GRAD.gold);
+        await sleep(900);
+        break;
+      case 'roadblockPlaced':
+        H.toast(`${BOARD[e.tile].name} 放置了路障`, GRAD.purple);
+        await sleep(700);
+        break;
+      case 'roadblockHit':
+        H.toast(`${vm.seats[e.seat].name} 被路障拦停在 ${BOARD[e.tile].name}`, GRAD.purple);
+        await sleep(900);
+        break;
+      case 'demolish':
+        vm.tiles[e.tile].lv = e.lv;
+        W.setBuilding(e.tile, vm, e.lv > 0); this.redrawTiles();
+        H.toast(`${BOARD[e.tile].name} 被强拆降为${LV_NAME[e.lv]}`, GRAD.purple);
+        await sleep(900);
+        break;
       case 'prompt':
         if (e.pending.seat !== this.me) { H.chipText(e.pending.seat, '思考中…'); }
         break;
@@ -378,6 +406,11 @@ export class Director {
       }
       case 'festival':
         return { title: '环球节庆', color: '#ec4899', kind: '选择一座自己的城市，过路费 ×2', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
+      case 'item':
+        return {
+          title: ITEMS[p.item!].name, color: '#0ea5e9', kind: ITEMS[p.item!].desc, rows: [], pending: p, grid: true,
+          optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : BOARD[p.options[k].value].name),
+        };
       case 'fly':
         return { title: '环球航班', color: '#16a34a', kind: '选择目的地（经过起点可领月薪）', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
     }
