@@ -1,6 +1,6 @@
 {
   "name": "@dt/client",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "网页客户端：PixiJS 渲染棋盘 + DOM HUD，支持单机（机器人）与在线对战",
   "type": "module",
   "scripts": {
