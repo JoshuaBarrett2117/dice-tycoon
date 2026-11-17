@@ -47,6 +47,8 @@ export const RULES = {
   wangSkillToll: 1.5,
   /** 熊猫「突击施工」无可升城市时的现金补偿（万） */
   pandaSkillCash: 10,
+  /** 岩盾「固若金汤」：向现金最多的对手收取的保护费（万，提案值） */
+  rockSkillFee: 5,
 
   // ── v0.2 阶段 2：全局事件 / 色组加成 / 机会卡（均为提案值）──
   /** 每隔几回合在回合开始时抽一次全局事件（第 N、2N… 回合第一位玩家的回合开始） */
@@ -123,7 +125,9 @@ export function zoneOfSum(sum: number): number {
   return ZONES.findIndex((z) => sum >= z.lo && sum <= z.hi);
 }
 
-export const ITEM_IDS = ['dice', 'roadblock', 'shield', 'doubleToll', 'demolish', 'freeBuild', 'teleport'] as const;
+/** v0.8 之前的 7 种旧抽取池（旧回放按此重放） */
+export const LEGACY_ITEM_IDS = ['dice', 'roadblock', 'shield', 'doubleToll', 'demolish', 'freeBuild', 'teleport'] as const;
+export const ITEM_IDS = [...LEGACY_ITEM_IDS, 'swap', 'taxFree', 'freeze'] as const;
 export const ITEMS: Record<(typeof ITEM_IDS)[number], { name: string; desc: string }> = {
   dice: { name: '遥控骰子', desc: '本次掷骰指定总点数 2–12' },
   roadblock: { name: '路障卡', desc: '在前方 8 格内放置路障，其他玩家经过时被拦停' },
@@ -132,6 +136,9 @@ export const ITEMS: Record<(typeof ITEM_IDS)[number], { name: string; desc: stri
   demolish: { name: '强拆卡', desc: '指定对手一处城市建筑降 1 级（地标/观光地除外）' },
   freeBuild: { name: '免费建造卡', desc: '自己一处城市免费升 1 级（lv<3）' },
   teleport: { name: '传送卡', desc: '立即飞往任意一格并结算落地' },
+  swap: { name: '换位卡', desc: '与指定一名玩家交换位置，你在新位置结算落地（不领月薪）' },
+  taxFree: { name: '免税卡', desc: '下次停在税务局时免缴税费（仅一次）' },
+  freeze: { name: '冻结卡', desc: '指定一名对手：其下回合不能掷骰，整回合跳过' },
 };
 
 // ── v0.3：观战 / 快速匹配 / 回放播放器（均为提案值）──

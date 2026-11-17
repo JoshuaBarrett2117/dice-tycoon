@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  MATCH, SPECIAL_TILES, THEMES, THEME_IDS, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
+  CHARACTERS, MATCH, SPECIAL_TILES, THEMES, THEME_IDS, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type BotDifficulty, type GameState, type SeatConfig,
 } from '../src';
 
@@ -1168,3 +1168,94 @@ describe('v0.7 特殊格与主题', () => {
     }
   });
 });
+
+describe('v0.8 道具与角色后续批次', () => {
+  const mk = (seed = 7, chars: ('jin' | 'rock' | 'li')[] = ['jin', 'li']) =>
+    createGame({ seed, itemsV8: true, seats: chars.map((c, i) => ({ id: 'p' + i, name: 'P' + i, charId: c })) });
+
+  it('换位卡：交换位置、使用者结算落地、不领月薪；对方不结算；非法目标不消耗', () => {
+    const s = mk();
+    s.seats[0].pos = 3; s.seats[1].pos = 5; s.seats[0].items = ['swap'];
+    const cash0 = s.seats[0].cash;
+    expect(applyAction(s, 0, { type: 'useItem', item: 'swap', target: 0 }).ok).toBe(false);
+    expect(s.seats[0].items).toEqual(['swap']);
+    const r = ok(s, 0, { type: 'useItem', item: 'swap', target: 1 });
+    expect(r.state.seats[0].pos).toBe(5);
+    expect(r.state.seats[1].pos).toBe(3);
+    expect(r.state.seats[0].items).toEqual([]);
+    expect(r.events.some((e) => e.t === 'swap')).toBe(true);
+    expect(r.events.some((e) => e.t === 'salary')).toBe(false);
+    expect(r.state.seats[0].cash).toBeLessThanOrEqual(cash0 + 0);
+  });
+
+  it('换位卡不带目标走 pending 选择，可取消不消耗', () => {
+    const s = mk();
+    s.seats[0].pos = 3; s.seats[1].pos = 5; s.seats[0].items = ['swap'];
+    let r = ok(s, 0, { type: 'useItem', item: 'swap' });
+    expect(r.state.phase).toBe('choose');
+    r = ok(r.state, 0, { type: 'choose', option: -1 });
+    expect(r.state.seats[0].items).toEqual(['swap']);
+    expect(r.state.seats[0].pos).toBe(3);
+  });
+
+  it('免税卡：下次税务局免缴且只免一次', () => {
+    const taxIdx = BOARD.findIndex((d) => d.kind === 'tax');
+    const run = (withCard: boolean) => {
+      const s = mk(); s.seats[0].items = withCard ? ['taxFree'] : [];
+      if (withCard) { const r = ok(s, 0, { type: 'useItem', item: 'taxFree' }); expect(r.state.seats[0].taxFree).toBe(true); expect(applyAction(r.state, 0, { type: 'useItem', item: 'taxFree' }).ok).toBe(false); }
+      return s;
+    };
+    const s = run(true);
+    s.seats[0].taxFree = true; s.seats[0].pos = taxIdx - 3; s.seats[0].forcedSum = 3;
+    const r = ok(s, 0, { type: 'roll', zone: 0 });
+    expect(r.events.some((e) => e.t === 'taxFreeUsed')).toBe(true);
+    expect(r.events.some((e) => e.t === 'pay' && e.reason === 'tax')).toBe(false);
+    expect(r.state.seats[0].taxFree).toBe(false);
+  });
+
+  it('冻结卡：对手下回合整体跳过，只一次；不能重复冻结', () => {
+    const s = mk(7, ['jin', 'li', 'jin']); s.seats[0].items = ['freeze', 'freeze'];
+    let r = ok(s, 0, { type: 'useItem', item: 'freeze', target: 1 });
+    expect(r.state.seats[1].frozen).toBe(true);
+    expect(applyAction(r.state, 0, { type: 'useItem', item: 'freeze', target: 1 }).ok).toBe(false);
+    r.state.seats[0].pos = 1;
+    r = ok(r.state, 0, { type: 'roll', zone: 0 });
+    // 走完本回合后：跳过座位 1，轮到座位 2
+    let st = r.state, guard = 0;
+    const evs: string[] = r.events.map((e) => e.t);
+    while (st.turn === 0 && st.phase !== 'ended' && guard++ < 20) { const x = ok(st, actorOf(st), botAction(st, actorOf(st))); st = x.state; evs.push(...x.events.map((e) => e.t)); }
+    expect(evs).toContain('frozenSkip');
+    expect(st.seats[1].frozen).toBe(false);
+    expect(st.turn).not.toBe(1);
+  });
+
+  it('岩盾阿岩：被动过路费 -10%；主动获得护盾并向最富对手收保护费', () => {
+    const s = mk(3, ['rock', 'li']);
+    const r = ok(s, 0, { type: 'useSkill' });
+    expect(r.state.seats[0].shield).toBe(true);
+    expect(r.state.seats[0].cash).toBe(RULES.startCash + RULES.rockSkillFee);
+    expect(r.state.seats[1].cash).toBe(RULES.startCash - RULES.rockSkillFee);
+    expect(CHARACTERS_ROCK.tollCut).toBe(0.1);
+  });
+
+  it('含新道具/新角色的机器人整局可回放且一致；新池含三种新道具', () => {
+    const cfg = { seed: 99, itemsV8: true, seats: (['rock', 'jin', 'li', 'xing'] as const).map((c, i) => ({ id: 'b' + i, name: 'B' + i, charId: c, isBot: true })) };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    const seen = new Set<string>();
+    let n = 0;
+    while (s.phase !== 'ended' && n++ < 5000) { const a = actorOf(s), act = botAction(s, a); const r = ok(s, a, act); rec.push(a, act); r.events.forEach((e) => { if (e.t === 'itemGained') seen.add(e.item); }); s = r.state; }
+    const re = replayGame(JSON.parse(JSON.stringify(rec.toRecord(s))));
+    expect(re.state).toEqual(s);
+    expect(['swap', 'taxFree', 'freeze'].some((i) => seen.has(i))).toBe(true);
+  });
+
+  it('旧回放（无 itemsV8）仍沿用 7 种旧池：不会抽到新道具', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const s = createGame({ seed, seats: SEATS.map((x) => ({ ...x })) });
+      expect(s.itemsV8).toBeUndefined();
+      for (const p of s.seats) for (const it of p.items) expect(['swap', 'taxFree', 'freeze']).not.toContain(it);
+    }
+  });
+});
+const CHARACTERS_ROCK = CHARACTERS.rock;

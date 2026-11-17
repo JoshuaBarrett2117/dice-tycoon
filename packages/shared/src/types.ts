@@ -41,9 +41,13 @@ export interface PlayerState {
   forcedSum: number | null;
   /** 机会卡「双倍月薪」：下一次经过起点的月薪 ×RULES.doubleSalaryMult */
   doubleSalary: boolean;
+  /** v0.8 免税卡：下次停在税务局免缴一次（可选，旧快照缺省视为 false） */
+  taxFree?: boolean;
+  /** v0.8 冻结卡：下一个自己回合整体跳过（可选，缺省视为 false） */
+  frozen?: boolean;
 }
 
-export type ItemId = 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport';
+export type ItemId = 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport' | 'swap' | 'taxFree' | 'freeze';
 
 export interface Roadblock { tile: number; owner: number }
 
@@ -101,6 +105,8 @@ export interface GameState {
   version: 2;
   /** v0.7：本局启用特殊格（传送 / 奖金）；旧快照无此字段视为 false */
   specials?: boolean;
+  /** v0.8：道具抽取池含换位 / 免税 / 冻结；旧快照与旧回放无此字段，沿用 7 种旧池以保证重放一致 */
+  itemsV8?: boolean;
   seed: number;
   rng: number;
   /** 每次合法操作 +1，客户端据此丢弃过期快照 */
@@ -151,6 +157,10 @@ export type GameEvent =
   | { t: 'islandEscape'; seat: number }
   | { t: 'pay'; from: number; to: number | null; amount: number; tile: number | null; reason: 'toll' | 'tax' | 'fine' | 'takeover' | 'birthday' }
   | { t: 'shieldUsed'; seat: number; tile: number }
+  | { t: 'taxFreeUsed'; seat: number; tile: number }
+  | { t: 'frozen'; seat: number; by: number }
+  | { t: 'frozenSkip'; seat: number }
+  | { t: 'swap'; seat: number; with: number }
   | { t: 'buy'; seat: number; tile: number; lv: number; cost: number }
   | { t: 'upgrade'; seat: number; tile: number; from: number; lv: number; cost: number }
   | { t: 'takeover'; seat: number; from: number; tile: number; cost: number }
@@ -185,4 +195,4 @@ export type ApplyResult = ApplyOk | ApplyErr;
 /** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string; difficulty?: BotDifficulty }
-export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean }
+export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean; /** v0.8 新道具池；缺省 false（旧回放兼容） */ itemsV8?: boolean }

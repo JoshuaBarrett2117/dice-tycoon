@@ -7,7 +7,7 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, ISLAND_INDEX, SIDES, TOURS, isOwnable } from './board';
 import { CHARACTERS } from './characters';
-import { SPECIAL_TILES, GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
+import { SPECIAL_TILES, GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, LEGACY_ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
   Action, AuctionState, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, TileState, WinReason,
@@ -18,6 +18,9 @@ interface Ctx { s: GameState; ev: GameEvent[] }
 const emptyTile = (): TileState => ({ owner: null, lv: 0, mortgaged: false });
 
 const LV_NAME = ['空地', '别墅', '公寓', '酒店', '地标'];
+
+/** 道具抽取池：v0.8 新局 10 种；旧局 / 旧回放 7 种（RNG 序列保持一致） */
+function itemPool(s: GameState): readonly ItemId[] { return s.itemsV8 ? ITEM_IDS : LEGACY_ITEM_IDS; }
 
 // ───────────────────────── 创建 ─────────────────────────
 export function createGame(cfg: GameConfig): GameState {
@@ -32,10 +35,11 @@ export function createGame(cfg: GameConfig): GameState {
     tiles: BOARD.map(() => (emptyTile())),
     turn: 0, round: 1, maxRounds: cfg.maxRounds ?? RULES.maxRounds,
     ...(cfg.specials ? { specials: true } : {}),
+    ...(cfg.itemsV8 ? { itemsV8: true } : {}),
     phase: 'roll', pending: null, festivalTile: null, globalEvent: null, roadblocks: [], winner: null, winReason: null,
   };
   // 开局发牌（走引擎 RNG，保证可回放）
-  for (const p of g.seats) for (let k = 0; k < RULES.itemStart; k++) p.items.push(pick(g, ITEM_IDS));
+  for (const p of g.seats) for (let k = 0; k < RULES.itemStart; k++) p.items.push(pick(g, itemPool(g)));
   return g;
 }
 
@@ -245,7 +249,7 @@ function paySalary(ctx: Ctx, seat: number) {
   p.cash += amount;
   ctx.ev.push({ t: 'salary', seat, amount });
   if (p.items.length < RULES.itemMax) {
-    const item = pick(ctx.s, ITEM_IDS);
+    const item = pick(ctx.s, itemPool(ctx.s));
     p.items.push(item);
     ctx.ev.push({ t: 'itemGained', seat, item });
   }
@@ -297,6 +301,7 @@ function resolveTile(ctx: Ctx, seat: number): Resolve {
       return drawCard(ctx, seat);
     }
     case 'tax': {
+      if (p.taxFree) { p.taxFree = false; ctx.ev.push({ t: 'taxFreeUsed', seat, tile: i }); return {}; }
       const fee = Math.round(p.cash * RULES.taxRate);
       if (fee > 0) pay(ctx, seat, null, fee, i, 'tax');
       return {};
@@ -413,7 +418,7 @@ function drawCard(ctx: Ctx, seat: number): Resolve {
     }
     case 'itemSupply':
       if (p.items.length < RULES.itemMax) {
-        const item = pick(s, ITEM_IDS);
+        const item = pick(s, itemPool(s));
         p.items.push(item);
         ctx.ev.push({ t: 'itemGained', seat, item });
       } else { p.cash += RULES.itemSupplyCash; ctx.ev.push({ t: 'bonus', seat, amount: RULES.itemSupplyCash }); }
@@ -430,6 +435,7 @@ function drawCard(ctx: Ctx, seat: number): Resolve {
 // ───────────────────────── 支付与破产 ─────────────────────────
 function pay(ctx: Ctx, from: number, to: number | null, amount: number, tile: number | null, reason: 'toll' | 'tax' | 'fine' | 'birthday') {
   const s = ctx.s, p = s.seats[from];
+  if (reason === 'toll') amount = Math.round(amount * (1 - CHARACTERS[p.charId].tollCut));
   if (p.cash < amount) liquidate(ctx, from, amount);
   const paid = Math.min(p.cash, amount);
   p.cash -= paid;
@@ -463,7 +469,7 @@ function goBankrupt(ctx: Ctx, seat: number) {
 }
 
 // ───────────────────────── 道具与技能 ─────────────────────────
-const TARGETED: ItemId[] = ['dice', 'roadblock', 'demolish', 'freeBuild', 'teleport'];
+const TARGETED: ItemId[] = ['dice', 'roadblock', 'demolish', 'freeBuild', 'teleport', 'swap', 'freeze'];
 
 /** 可选目标（dice 为总点数；其余为格子序号） */
 export function itemTargets(s: GameState, seat: number, item: ItemId): number[] {
@@ -482,6 +488,8 @@ export function itemTargets(s: GameState, seat: number, item: ItemId): number[] 
       return s.tiles.map((t, i) => (t.owner != null && t.owner !== seat && !s.seats[t.owner].bankrupt && BOARD[i].kind === 'city' && !t.mortgaged && t.lv >= 1 && t.lv <= 3 ? i : -1)).filter((i) => i >= 0);
     case 'freeBuild': return upgradableCities(s, seat);
     case 'teleport': return BOARD.filter((d) => d.index !== p.pos && !(d.kind === 'corner' && d.corner === 'island')).map((d) => d.index);
+    case 'swap': return s.seats.filter((q) => q.seat !== seat && !q.bankrupt && q.islandTurns === 0 && q.pos !== p.pos).map((q) => q.seat);
+    case 'freeze': return s.seats.filter((q) => q.seat !== seat && !q.bankrupt && !q.frozen).map((q) => q.seat);
     default: return [];
   }
 }
@@ -490,8 +498,9 @@ function upgradableCities(s: GameState, seat: number) {
   return ownCities(s, seat).filter((i) => s.tiles[i].lv < 3);
 }
 
-function itemLabel(item: ItemId, v: number): string {
+function itemLabel(s: GameState, item: ItemId, v: number): string {
   if (item === 'dice') return `指定点数 ${v}`;
+  if (item === 'swap' || item === 'freeze') return s.seats[v].name;
   return BOARD[v].name;
 }
 
@@ -501,6 +510,8 @@ function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string 
   if (!(ITEM_IDS as readonly string[]).includes(item)) return '未知道具';
   if (p.items.indexOf(item) < 0) return '你没有这张道具';
   if (item === 'teleport' && p.islandTurns > 0) return '在无人岛上无法传送';
+  if (item === 'swap' && p.islandTurns > 0) return '在无人岛上无法换位';
+  if (item === 'taxFree' && p.taxFree) return '免税已在生效';
   if (item === 'dice' && p.forcedSum != null) return '遥控骰子已在生效';
   if (item === 'shield' && p.shield) return '护盾已在生效';
   if (item === 'doubleToll' && p.doubleToll) return '双倍收租已在生效';
@@ -508,7 +519,7 @@ function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string 
   if (TARGETED.includes(item)) {
     if (!targets.length) return '没有可选目标';
     if (target === undefined) {
-      const options = targets.map((v) => ({ value: v, cost: 0, label: itemLabel(item, v) }));
+      const options = targets.map((v) => ({ value: v, cost: 0, label: itemLabel(s, item, v) }));
       setPending(ctx, { kind: 'item', item, seat, tile: null, options, again: false });
       return null;
     }
@@ -531,6 +542,20 @@ function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string 
       break;
     }
     case 'freeBuild': freeUpgrade(ctx, seat, target!); break;
+    case 'taxFree': p.taxFree = true; break;
+    case 'freeze': {
+      s.seats[target!].frozen = true;
+      ctx.ev.push({ t: 'frozen', seat: target!, by: seat });
+      break;
+    }
+    case 'swap': {
+      const o = s.seats[target!], mine = p.pos;
+      p.pos = o.pos; o.pos = mine;
+      ctx.ev.push({ t: 'swap', seat, with: target! });
+      ctx.ev.push({ t: 'move', seat, path: [p.pos], via: 'fly' });
+      landAndFinish(ctx, seat, true);
+      break;
+    }
     case 'teleport': {
       const dest = target!, passStart = dest < p.pos;
       p.pos = dest;
@@ -567,6 +592,15 @@ function useSkill(ctx: Ctx, seat: number): string | null {
     case 'li': p.liDiscount = true; break;
     case 'wang': p.wangToll = true; break;
     case 'xing': p.xingPerfect = true; break;
+    case 'rock': {
+      p.shield = true;
+      const rich = s.seats.filter((q) => q.seat !== seat && !q.bankrupt).sort((a, b) => b.cash - a.cash || a.seat - b.seat)[0];
+      if (rich) {
+        const fee = Math.min(rich.cash, RULES.rockSkillFee);
+        if (fee > 0) { rich.cash -= fee; p.cash += fee; ctx.ev.push({ t: 'pay', from: rich.seat, to: seat, amount: fee, tile: null, reason: 'fine' }); }
+      }
+      break;
+    }
     case 'panda': {
       // 确定性：升级地价最高的可升城市（同价取序号小者）
       const c = upgradableCities(s, seat).sort((a, b) => BOARD[b].price - BOARD[a].price || a - b);
@@ -688,6 +722,13 @@ function startTurn(ctx: Ctx, seat: number, newRound = false) {
   if (p.skillCd > 0) p.skillCd--;
   ctx.ev.push({ t: 'turn', seat, round: s.round });
   if (newRound) rollGlobalEvent(ctx);
+  if (p.frozen) {
+    // 冻结卡：整回合跳过（不掷骰、不移动、不领月薪），冷却照常递减
+    p.frozen = false;
+    ctx.ev.push({ t: 'frozenSkip', seat });
+    endTurn(ctx);
+    return;
+  }
   if (p.flyNext) {
     p.flyNext = false;
     const opts = BOARD.filter((d) => d.index !== p.pos && !(d.kind === 'corner' && d.corner === 'island'))

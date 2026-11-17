@@ -21,7 +21,7 @@ export const ASSET_LIST = [
   'char1.png', 'char2.png', 'char3.png', 'char4.png', 'char5.png',
 ];
 
-export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5' };
+export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5', rock: 'char5' };
 
 export class World {
   app = new Application();

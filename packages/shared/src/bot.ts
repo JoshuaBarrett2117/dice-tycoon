@@ -5,7 +5,7 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, TOURS } from './board';
 import { BOT_DEFAULT_DIFFICULTY, BOT_LEVELS, ZONES } from './config';
-import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf } from './engine';
+import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf, totalAssets } from './engine';
 import type { Action, GameState } from './types';
 
 function lv(s: GameState, seat: number) { return BOT_LEVELS[s.seats[seat].difficulty ?? BOT_DEFAULT_DIFFICULTY]; }
@@ -73,6 +73,16 @@ export function preRollAction(s: GameState, seat: number): Action | null {
   const tries: (Action | null)[] = [];
   if (has('teleport') && p.islandTurns === 0) { const t = best('teleport'); if (t >= 0) tries.push({ type: 'useItem', item: 'teleport', target: t }); }
   if (has('dice') && p.islandTurns === 0) { const t = best('dice'); if (t >= 0) tries.push({ type: 'useItem', item: 'dice', target: t }); }
+  if (has('swap') && p.islandTurns === 0) {
+    let tg = -1, v = 2.9;
+    for (const q of itemTargets(s, seat, 'swap')) { const sc = tileScore(s, seat, s.seats[q].pos); if (sc > v) { v = sc; tg = q; } }
+    if (tg >= 0) tries.push({ type: 'useItem', item: 'swap', target: tg });
+  }
+  if (has('taxFree') && !p.taxFree && cash >= 250) tries.push({ type: 'useItem', item: 'taxFree' });
+  if (has('freeze')) {
+    const tg = itemTargets(s, seat, 'freeze').sort((a, c) => totalAssets(s, c) - totalAssets(s, a) || a - c)[0];
+    if (tg !== undefined && totalAssets(s, tg) >= totalAssets(s, seat)) tries.push({ type: 'useItem', item: 'freeze', target: tg });
+  }
   if (has('freeBuild')) {
     const c = itemTargets(s, seat, 'freeBuild').sort((a, b) => BOARD[b].price - BOARD[a].price)[0];
     if (c !== undefined) tries.push({ type: 'useItem', item: 'freeBuild', target: c });

@@ -247,6 +247,26 @@ export class Director {
         await sleep(700);
         break;
       case 'pay': await this.playPay(e.from, e.to, e.amount, e.tile, e.reason); break;
+      case 'taxFreeUsed':
+        AU.play('card');
+        H.toast('免税卡生效：本次税费全免', GRAD.purple);
+        await sleep(800);
+        break;
+      case 'frozen':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 被 ${vm.seats[e.by].name} 冻结，下回合无法掷骰`, GRAD.blue);
+        await sleep(800);
+        break;
+      case 'frozenSkip':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 被冻结，本回合跳过`, GRAD.blue);
+        await sleep(1000);
+        break;
+      case 'swap':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 与 ${vm.seats[e.with].name} 交换了位置`, GRAD.purple);
+        await sleep(800);
+        break;
       case 'shieldUsed':
         AU.play('card');
         H.toast('免单券生效：本次过路费全免', GRAD.purple);
@@ -579,10 +599,10 @@ export class Director {
       case 'item':
         return {
           title: ITEMS[p.item!].name, color: '#0ea5e9',
-          kind: p.item === 'dice' ? ITEMS[p.item!].desc : `${ITEMS[p.item!].desc} · 可直接点击棋盘上发亮的目标格`,
+          kind: p.item === 'dice' || p.item === 'swap' || p.item === 'freeze' ? ITEMS[p.item!].desc : `${ITEMS[p.item!].desc} · 可直接点击棋盘上发亮的目标格`,
           rows: [], pending: p, grid: true,
-          optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : BOARD[p.options[k].value].name),
-          onMount: p.item === 'dice' ? undefined : (pick) => this.mountBoardPick(p, pick),
+          optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : p.item === 'swap' || p.item === 'freeze' ? p.options[k].label : BOARD[p.options[k].value].name),
+          onMount: p.item === 'dice' || p.item === 'swap' || p.item === 'freeze' ? undefined : (pick) => this.mountBoardPick(p, pick),
         };
       case 'auction': {
         const au = p.auction!;
