@@ -5,7 +5,7 @@
 import {
   Application, Assets, BlurFilter, Container, Graphics, Matrix, Sprite, Text, type Texture,
 } from 'pixi.js';
-import { BOARD, GROUP_COLOR, type GameState, tollOf } from '@dt/shared';
+import { BOARD, GROUP_COLOR, type GameState, groupSetOwner, tollOf } from '@dt/shared';
 import { A, B, BASEH, CW, GEO, OX, OY, P, S, TH, W, ZT, buildingAnchor, tileCorners, tokenAnchor } from './iso';
 import { ease, hexNum, shade, tween } from '../core/tween';
 import { Token } from './Token';
@@ -141,6 +141,9 @@ export class World {
     const own = t.owner != null ? this.colors[t.owner] : null;
     if (own) g.rect(-lw / 2, -ld / 2, lw, ld - band).fill(shade(own, 0.62));
     if (state.festivalTile === i) g.rect(-lw / 2, -ld / 2, lw, ld - band).stroke({ width: 3, color: 0xff4fa3 });
+    // 色组集齐：金色描边 + 星标（过路费 ×1.5）
+    const setOwner = groupSetOwner(state, i);
+    if (setOwner != null) g.rect(-lw / 2, -ld / 2, lw, ld).stroke({ width: 3, color: 0xffd23f });
     g.rect(-lw / 2, ld / 2 - band, lw, band).fill(hexNum(col));
     g.rect(-lw / 2, ld / 2 - band, lw, 3).fill({ color: 0xffffff, alpha: 0.28 });
     inner.addChild(g);
@@ -148,7 +151,7 @@ export class World {
     nm.anchor.set(0.5); nm.y = ld / 2 - band / 2 + 1;
     inner.addChild(nm);
     let sub: Text | null = null;
-    if (own) sub = txt(`过路费 ¥${tollOf(state, i)}万`, 9, shade(own, -0.1));
+    if (own) sub = txt(`${setOwner != null ? '★ ' : ''}过路费 ¥${tollOf(state, i)}万`, 9, shade(own, -0.1));
     else if (d.kind === 'card') { sub = txt('?', 34, hexNum(col)); sub.y = -ld * 0.16; }
     else if (d.kind === 'tax') sub = txt('税', 22, 0x64748b);
     else if (d.kind === 'tour') sub = txt(`观光地 ¥${d.price}万`, 10, 0x0b6e9e);

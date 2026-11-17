@@ -47,7 +47,58 @@ export const RULES = {
   wangSkillToll: 1.5,
   /** 熊猫「突击施工」无可升城市时的现金补偿（万） */
   pandaSkillCash: 10,
+
+  // ── v0.2 阶段 2：全局事件 / 色组加成 / 机会卡（均为提案值）──
+  /** 每隔几回合在回合开始时抽一次全局事件（第 N、2N… 回合第一位玩家的回合开始） */
+  globalEventEvery: 3,
+  /** 集齐同一色组全部城市后，该组城市过路费倍率 */
+  groupSetTollMult: 1.5,
+  /** 生日派对：其他每名未破产玩家各付你（万） */
+  birthdayGift: 5,
+  /** 前进 / 后退卡的步数 */
+  cardMoveSteps: 3,
+  /** 道具补给卡在手牌已满时改发的现金（万） */
+  itemSupplyCash: 10,
+  /** 税务返还：现金比例与上限（万） */
+  refundRate: 0.1,
+  refundCap: 20,
+  /** 双倍月薪卡：下一次经过起点的月薪倍率 */
+  doubleSalaryMult: 2,
+
+  // ── v0.2 阶段 4：竞拍与抵押（提案值）──
+  /** 竞拍起拍价 = 地价 × 此比例（四舍五入） */
+  auctionStartRatio: 0.5,
+  /** 最小加价（万） */
+  auctionMinRaise: 5,
+  /** 竞拍出价选项：在「最低报价」之上额外加价的档位（万），0 即最低报价 */
+  auctionBidSteps: [0, 10, 30],
+  /** 抵押得款 = 已投入总价 × 此比例（与 sellRatio 同口径） */
+  mortgageRatio: 0.5,
+  /** 赎回价 = 抵押得款 × 此倍数 */
+  redeemMult: 1.1,
 } as const;
+
+/**
+ * 全局经济事件（每 RULES.globalEventEvery 回合抽一次，持续 1 回合，全员生效）。
+ * 倍率统一在 engine.globalMods 中读取，禁止在别处散落判断。
+ * 叠加顺序：先单格/色组/持有者倍率，后全局倍率，最后一次性取整。
+ */
+export const GLOBAL_EVENT_IDS = ['none', 'tourBoom', 'propertyBoom', 'subsidy', 'recession'] as const;
+export type GlobalEventId = (typeof GLOBAL_EVENT_IDS)[number];
+export interface GlobalEventDef {
+  name: string; desc: string; weight: number;
+  /** 观光地过路费倍率 */ tourToll: number;
+  /** 所有过路费倍率 */ toll: number;
+  /** 建设费倍率 */ build: number;
+  /** 月薪倍率 */ salary: number;
+}
+export const GLOBAL_EVENTS: Record<GlobalEventId, GlobalEventDef> = {
+  none: { name: '风平浪静', desc: '本回合没有全局事件', weight: 4, tourToll: 1, toll: 1, build: 1, salary: 1 },
+  tourBoom: { name: '旅游旺季', desc: '观光地过路费 ×2', weight: 1, tourToll: 2, toll: 1, build: 1, salary: 1 },
+  propertyBoom: { name: '地产热潮', desc: '所有过路费 +30%', weight: 1, tourToll: 1, toll: 1.3, build: 1, salary: 1 },
+  subsidy: { name: '建设补贴', desc: '建设费 -30%', weight: 1, tourToll: 1, toll: 1, build: 0.7, salary: 1 },
+  recession: { name: '经济萧条', desc: '月薪与过路费 -30%', weight: 1, tourToll: 1, toll: 0.7, build: 1, salary: 0.7 },
+};
 
 /** 蓄力区间：力度条上的四档，宽度用于客户端绘制（总和 100） */
 export interface DiceZone { lo: number; hi: number; width: number; color: string }

@@ -7,7 +7,7 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, ISLAND_INDEX, SIDES, TOURS, isOwnable } from './board';
 import { CHARACTERS } from './characters';
-import { ITEM_IDS, RULES, ZONES } from './config';
+import { GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
   Action, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, WinReason,
@@ -23,13 +23,13 @@ export function createGame(cfg: GameConfig): GameState {
   const seats: PlayerState[] = cfg.seats.map((c, seat) => ({
     seat, id: c.id, name: c.name, charId: c.charId, isBot: !!c.isBot,
     cash: RULES.startCash, pos: 0, islandTurns: 0, doubles: 0, bankrupt: false, flyNext: false, shield: false,
-    items: [], skillCd: 0, doubleToll: false, wangToll: false, liDiscount: false, xingPerfect: false, forcedSum: null,
+    items: [], skillCd: 0, doubleToll: false, wangToll: false, liDiscount: false, xingPerfect: false, forcedSum: null, doubleSalary: false,
   }));
   const g: GameState = {
-    version: 1, seed: cfg.seed >>> 0, rng: cfg.seed >>> 0, seq: 0, seats,
+    version: 2, seed: cfg.seed >>> 0, rng: cfg.seed >>> 0, seq: 0, seats,
     tiles: BOARD.map(() => ({ owner: null, lv: 0 })),
     turn: 0, round: 1, maxRounds: cfg.maxRounds ?? RULES.maxRounds,
-    phase: 'roll', pending: null, festivalTile: null, roadblocks: [], winner: null, winReason: null,
+    phase: 'roll', pending: null, festivalTile: null, globalEvent: null, roadblocks: [], winner: null, winReason: null,
   };
   // 开局发牌（走引擎 RNG，保证可回放）
   for (const p of g.seats) for (let k = 0; k < RULES.itemStart; k++) p.items.push(pick(g, ITEM_IDS));
@@ -46,25 +46,47 @@ export function investedValue(s: GameState, i: number): number {
   return Math.round(v);
 }
 
-/** 从 from 级建到 to 级的建设费（含角色折扣） */
+/** 当前生效的全局事件倍率（无事件 = 全 1）。所有计价函数统一从这里取，禁止在别处散落判断 */
+export function globalMods(s: GameState): GlobalEventDef {
+  const g = s.globalEvent;
+  return GLOBAL_EVENTS[g && g.untilRound >= s.round ? g.id : 'none'];
+}
+
+/** 该城市所在色组是否被同一玩家集齐（返回持有者，否则 null）；观光地 / 非城市恒为 null */
+export function groupSetOwner(s: GameState, i: number): number | null {
+  const d = BOARD[i];
+  if (d.kind !== 'city' || !d.group) return null;
+  const o = s.tiles[i].owner;
+  if (o == null) return null;
+  return GROUPS[d.group].every((x) => s.tiles[x].owner === o) ? o : null;
+}
+
+/** 从 from 级建到 to 级的建设费：先角色折扣，再全局事件（建设补贴），最后取整 */
 export function buildCost(s: GameState, seat: number, i: number, from: number, to: number): number {
   const d = BOARD[i], disc = CHARACTERS[s.seats[seat].charId].buildDiscount;
   let c = 0;
   for (let l = from + 1; l <= to; l++) c += d.price * RULES.buildCostMult[l];
-  return Math.round(c * (1 - disc));
+  return Math.round(c * (1 - disc) * globalMods(s).build);
 }
 
+/**
+ * 过路费：所有倍率集中在此一处计算（v0.2 叠加顺序）：
+ *   ① 单格 / 色组 / 持有者倍率：节庆 ×2 → 色组集齐 ×1.5 → 角色被动 → 双倍收租卡 → 老王金算盘（全部相乘）
+ *   ② 全局事件倍率：过路费倍率（地产热潮 / 经济萧条）→ 观光地倍率（旅游旺季，仅观光地）
+ *   ③ 最后一次性四舍五入，中间不取整
+ */
 export function tollOf(s: GameState, i: number): number {
   const d = BOARD[i], t = s.tiles[i];
   if (t.owner == null) return 0;
-  const op = s.seats[t.owner];
-  const bonus = (1 + CHARACTERS[op.charId].tollBonus) * (op.doubleToll ? RULES.doubleTollMult : 1) * (op.wangToll ? RULES.wangSkillToll : 1);
+  const op = s.seats[t.owner], g = globalMods(s);
+  const owner = (1 + CHARACTERS[op.charId].tollBonus) * (op.doubleToll ? RULES.doubleTollMult : 1) * (op.wangToll ? RULES.wangSkillToll : 1);
   if (d.kind === 'tour') {
     const n = TOURS.filter((x) => s.tiles[x].owner === t.owner).length;
-    return Math.round(RULES.tourTollBase * 2 ** (n - 1) * bonus);
+    return Math.round(RULES.tourTollBase * 2 ** (n - 1) * owner * g.toll * g.tourToll);
   }
   const fest = s.festivalTile === i ? RULES.festivalMult : 1;
-  return Math.round(d.price * RULES.tollMult[t.lv] * fest * bonus);
+  const set = groupSetOwner(s, i) != null ? RULES.groupSetTollMult : 1;
+  return Math.round(d.price * RULES.tollMult[t.lv] * fest * set * owner * g.toll);
 }
 
 export function takeoverCost(s: GameState, seat: number, i: number): number {
@@ -195,8 +217,11 @@ function walk(ctx: Ctx, seat: number, steps: number) {
 
 function paySalary(ctx: Ctx, seat: number) {
   const p = ctx.s.seats[seat];
-  p.cash += RULES.salary;
-  ctx.ev.push({ t: 'salary', seat, amount: RULES.salary });
+  // 月薪：基数 × 全局事件（经济萧条）× 双倍月薪卡，最后取整
+  const amount = Math.round(RULES.salary * globalMods(ctx.s).salary * (p.doubleSalary ? RULES.doubleSalaryMult : 1));
+  p.doubleSalary = false;
+  p.cash += amount;
+  ctx.ev.push({ t: 'salary', seat, amount });
   if (p.items.length < RULES.itemMax) {
     const item = pick(ctx.s, ITEM_IDS);
     p.items.push(item);
@@ -307,6 +332,12 @@ const CARDS: { id: CardId; text: string }[] = [
   { id: 'island', text: '遭遇风暴：漂流到无人岛' },
   { id: 'freeUpgrade', text: '政府补贴：免费升级一处城市' },
   { id: 'shield', text: '免单券：下次过路费全免' },
+  { id: 'birthday', text: `生日派对：其他玩家各付你 ¥${RULES.birthdayGift} 万` },
+  { id: 'forward', text: `前进 ${RULES.cardMoveSteps} 步并结算落地` },
+  { id: 'back', text: `后退 ${RULES.cardMoveSteps} 步并结算落地（不领月薪）` },
+  { id: 'itemSupply', text: `道具补给：随机获得 1 张道具（手牌满则改发 ¥${RULES.itemSupplyCash} 万）` },
+  { id: 'taxRefund', text: `税务返还：获得现金的 ${Math.round(RULES.refundRate * 100)}%（上限 ¥${RULES.refundCap} 万）` },
+  { id: 'doubleSalary', text: `双倍月薪：下次经过起点月薪 ×${RULES.doubleSalaryMult}` },
 ];
 
 function drawCard(ctx: Ctx, seat: number): Resolve {
@@ -326,11 +357,39 @@ function drawCard(ctx: Ctx, seat: number): Resolve {
       return {};
     }
     case 'shield': p.shield = true; return {};
+    case 'birthday':
+      for (const o of s.seats) if (o.seat !== seat && !o.bankrupt) pay(ctx, o.seat, seat, RULES.birthdayGift, p.pos, 'birthday');
+      return {};
+    case 'forward':
+      // 前进：复用 walk（路障 / 过起点月薪照常），再按落地格结算；卡牌格不会连环抽卡
+      walk(ctx, seat, RULES.cardMoveSteps);
+      return BOARD[p.pos].kind === 'card' ? {} : resolveTile(ctx, seat);
+    case 'back': {
+      // 后退：逐格倒走，经过起点不领月薪，不触发路障；落地后正常结算
+      const path: number[] = [];
+      for (let k = 1; k <= RULES.cardMoveSteps; k++) path.push((p.pos - k + BOARD_SIZE) % BOARD_SIZE);
+      p.pos = path[path.length - 1];
+      ctx.ev.push({ t: 'move', seat, path, via: 'walk' });
+      return BOARD[p.pos].kind === 'card' ? {} : resolveTile(ctx, seat);
+    }
+    case 'itemSupply':
+      if (p.items.length < RULES.itemMax) {
+        const item = pick(s, ITEM_IDS);
+        p.items.push(item);
+        ctx.ev.push({ t: 'itemGained', seat, item });
+      } else { p.cash += RULES.itemSupplyCash; ctx.ev.push({ t: 'bonus', seat, amount: RULES.itemSupplyCash }); }
+      return {};
+    case 'taxRefund': {
+      const amount = Math.min(RULES.refundCap, Math.round(p.cash * RULES.refundRate));
+      if (amount > 0) { p.cash += amount; ctx.ev.push({ t: 'bonus', seat, amount }); }
+      return {};
+    }
+    case 'doubleSalary': p.doubleSalary = true; return {};
   }
 }
 
 // ───────────────────────── 支付与破产 ─────────────────────────
-function pay(ctx: Ctx, from: number, to: number | null, amount: number, tile: number | null, reason: 'toll' | 'tax' | 'fine') {
+function pay(ctx: Ctx, from: number, to: number | null, amount: number, tile: number | null, reason: 'toll' | 'tax' | 'fine' | 'birthday') {
   const s = ctx.s, p = s.seats[from];
   if (p.cash < amount) liquidate(ctx, from, amount);
   const paid = Math.min(p.cash, amount);
@@ -573,22 +632,43 @@ function endTurn(ctx: Ctx) {
     next = (next + 1) % n;
     if (!s.seats[next].bankrupt) break;
   }
-  if (next <= s.turn) s.round++;
+  const newRound = next <= s.turn;
+  if (newRound) s.round++;
   if (s.round > s.maxRounds) { endByAssets(ctx); return; }
-  startTurn(ctx, next);
+  startTurn(ctx, next, newRound);
 }
 
-function startTurn(ctx: Ctx, seat: number) {
+function startTurn(ctx: Ctx, seat: number, newRound = false) {
   const s = ctx.s, p = s.seats[seat];
   s.turn = seat; p.doubles = 0; s.pending = null; s.phase = 'roll';
   p.doubleToll = false; p.wangToll = false; p.liDiscount = false; p.xingPerfect = false; p.forcedSum = null;
   if (p.skillCd > 0) p.skillCd--;
   ctx.ev.push({ t: 'turn', seat, round: s.round });
+  if (newRound) rollGlobalEvent(ctx);
   if (p.flyNext) {
     p.flyNext = false;
     const opts = BOARD.filter((d) => d.index !== p.pos && !(d.kind === 'corner' && d.corner === 'island'))
       .map((d) => ({ value: d.index, cost: 0, label: `飞往 ${d.name}` }));
     setPending(ctx, { kind: 'fly', seat, tile: p.pos, options: opts, again: false });
+  }
+}
+
+/**
+ * 新一轮开始时刷新全局事件：旧事件失效；每 RULES.globalEventEvery 回合用 state.rng 按权重抽一次（含「无事件」）。
+ * 事件持续 1 回合（untilRound = 当前回合）。
+ */
+function rollGlobalEvent(ctx: Ctx) {
+  const s = ctx.s, had = s.globalEvent != null;
+  s.globalEvent = null;
+  if (s.round % RULES.globalEventEvery === 0) {
+    const total = GLOBAL_EVENT_IDS.reduce((a, id) => a + GLOBAL_EVENTS[id].weight, 0);
+    let r = nextInt(s, 0, total - 1);
+    let id = GLOBAL_EVENT_IDS[0] as (typeof GLOBAL_EVENT_IDS)[number];
+    for (const x of GLOBAL_EVENT_IDS) { if (r < GLOBAL_EVENTS[x].weight) { id = x; break; } r -= GLOBAL_EVENTS[x].weight; }
+    if (id !== 'none') s.globalEvent = { id, untilRound: s.round };
+    ctx.ev.push({ t: 'globalEvent', id, round: s.round });
+  } else if (had) {
+    ctx.ev.push({ t: 'globalEvent', id: 'none', round: s.round });
   }
 }
 
@@ -631,3 +711,21 @@ function end(ctx: Ctx, winner: number, reason: WinReason) {
 }
 
 export { isOwnable };
+
+/**
+ * 存量快照升级：把 v0.1 / v0.2 阶段 1 的快照（version 1）补齐新字段后升为 version 2。
+ * 只补默认值，不改变既有字段；version 2 的快照原样返回（深拷贝）。
+ */
+export function migrateState(raw: unknown): GameState {
+  const s = structuredClone(raw) as unknown as GameState & { version: number };
+  const ver: number = s.version;
+  if (ver !== 1 && ver !== 2) throw new Error(`不支持的快照版本：${ver}`);
+  s.version = 2;
+  s.globalEvent ??= null;
+  s.roadblocks ??= [];
+  for (const p of s.seats) {
+    p.items ??= []; p.skillCd ??= 0; p.doubleToll ??= false; p.wangToll ??= false; p.liDiscount ??= false;
+    p.xingPerfect ??= false; p.forcedSum ??= null; p.doubleSalary ??= false;
+  }
+  return s;
+}

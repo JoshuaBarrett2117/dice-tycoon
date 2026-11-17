@@ -5,7 +5,8 @@
 import {
   BOARD, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
   controlOf, tollOf, totalAssets,
-  type GameEvent, type GameState, type Pending, type WinReason,
+  GLOBAL_EVENTS,
+  type Action, type GameEvent, type GameState, type ItemId, type Pending, type WinReason,
 } from '@dt/shared';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
@@ -67,6 +68,7 @@ export class Director {
       img: charUrl(p.charId), isMe: i === this.me,
     })), s.seats.map((p) => p.cash));
     this.hud.setRound(s.round, s.maxRounds);
+    this.hud.setGlobalEvent(s.globalEvent?.id ?? null);
     this.layout(false);
     s.seats.forEach((_, i) => this.hud.setProps(i, this.propsOf(s, i)));
   }
@@ -86,6 +88,35 @@ export class Director {
     this.redrawTiles();
     this.layout(true);
     this.hud.setRound(s.round, s.maxRounds);
+    this.hud.setGlobalEvent(s.globalEvent?.id ?? null);
+    this.acts(s, false);
+  }
+
+  /** 行动栏：我的手牌 / 主动技能；只有轮到我且在掷骰阶段才可点 */
+  private acts(s: GameState, enabled: boolean) {
+    const me = s.seats[this.me];
+    if (!me) return;
+    const def = CHARACTERS[me.charId];
+    const seq = s.seq;
+    const press = (a: Action) => {
+      this.acts(s, false);
+      this.src.send(a);
+      // 非法操作不会触发新快照：稍后若状态没变，恢复可点
+      setTimeout(() => { if (this.latest?.state.seq === seq && !this.busy) this.acts(this.latest.state, enabled); }, 700);
+    };
+    this.hud.setActs({
+      enabled,
+      items: me.items.map((id) => ({ id, name: ITEMS[id].name, desc: ITEMS[id].desc })),
+      skill: me.bankrupt ? null : { name: def.active.name, desc: def.active.desc, cd: me.skillCd },
+      extras: this.extraActs(s, press),
+      onItem: (id) => press({ type: 'useItem', item: id as ItemId }),
+      onSkill: () => press({ type: 'useSkill' }),
+    });
+  }
+
+  /** 行动栏的额外按钮（抵押 / 赎回入口等），由后续阶段补充 */
+  private extraActs(_s: GameState, _press: (a: Action) => void): { label: string; title: string; on: () => void }[] {
+    return [];
   }
 
   private propsOf(s: GameState, seat: number) { return s.tiles.filter((t) => t.owner === seat).length; }
@@ -269,6 +300,16 @@ export class Director {
         H.toast(`${BOARD[e.tile].name} 被强拆降为${LV_NAME[e.lv]}`, GRAD.purple);
         await sleep(900);
         break;
+      case 'globalEvent':
+        vm.globalEvent = e.id === 'none' ? null : { id: e.id, untilRound: e.round };
+        H.setGlobalEvent(e.id);
+        if (e.id !== 'none') {
+          AU.play('card');
+          H.toast(`全局事件：${GLOBAL_EVENTS[e.id].name} · ${GLOBAL_EVENTS[e.id].desc}`, GRAD.purple);
+          this.redrawTiles();
+          await sleep(900);
+        }
+        break;
       case 'prompt':
         if (e.pending.seat !== this.me) { H.chipText(e.pending.seat, '思考中…'); }
         break;
@@ -349,6 +390,7 @@ export class Director {
     if (s.phase === 'ended' || s.turn !== this.me) return;
     const seq = s.seq;
     if (s.phase === 'roll') {
+      this.acts(s, true);
       const again = s.seats[this.me].doubles > 0;
       const zone = await this.hud.waitRoll(controlOf(s.seats[this.me]), again, (z) => this.previewZone(z));
       if (zone < 0 || this.latest?.state.seq !== seq) return;

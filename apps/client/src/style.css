@@ -75,6 +75,22 @@ button { font-family: inherit; }
 #toast { position: absolute; left: 50%; top: 214px; min-width: 360px; padding: 0 26px; height: 46px; border-radius: 23px; display: flex; align-items: center; justify-content: center; font-size: 19px; z-index: 15; opacity: 0; transform: translate(-50%, -10px) scale(.9); transition: .25s cubic-bezier(.3,1.5,.5,1); border: 3px solid #fff; white-space: nowrap; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* 全局事件横幅 / 行动栏 */
+#gbanner { position: absolute; left: 50%; top: 48px; transform: translate(-50%, -8px); padding: 5px 18px; border-radius: 14px; background: linear-gradient(#a855f7, #7c3aed); border: 3px solid #fff; box-shadow: 0 4px 0 rgba(40,20,90,.45); display: none; flex-direction: column; align-items: center; font-size: 12px; font-weight: 900; z-index: 5; pointer-events: none !important; }
+#gbanner.show { display: flex; transform: translate(-50%, 0); }
+#gbanner b { font-size: 15px; color: #ffe14a; }
+#acts { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: none; gap: 8px; z-index: 6; }
+#acts.show { display: flex; }
+#acts.off { opacity: .55; }
+#acts .act { min-width: 96px; max-width: 150px; height: 54px; padding: 4px 10px; border-radius: 14px; border: 3px solid #fff; cursor: pointer; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; box-shadow: 0 4px 0 rgba(20,30,70,.35); }
+#acts .act b { font-size: 14px; } #acts .act small { font-size: 10px; font-weight: 700; opacity: .92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+#acts .act.item { background: linear-gradient(#5aa8ff, #2a6fe0); }
+#acts .act.skill { background: linear-gradient(#ffd25a, #ffa31a 45%, #ff7a00); }
+#acts .act.extra { background: linear-gradient(#34d399, #059669); }
+#acts .act.cd { filter: grayscale(.8) brightness(.85); cursor: default; }
+#acts.off .act { cursor: default; }
+#acts .act:not(.cd):active { transform: translateY(3px); }
+
 /* 选择面板 */
 #sheet { position: absolute; right: -420px; top: 110px; width: 372px; min-height: 420px; z-index: 30; border-radius: 26px; background: linear-gradient(#fff, #eef3ff); border: 4px solid #3a4670; box-shadow: inset 0 0 0 3px #c9d6ff, 0 10px 30px rgba(0,0,0,.4); color: #26325a; transition: right .42s cubic-bezier(.2,1.25,.4,1); padding: 40px 22px 92px; }
 #sheet.show { right: 24px; }

@@ -1,5 +1,5 @@
 /** DOM 版 HUD：头像芯片、掷骰键与蓄力条、骰子、提示条、选择面板、金币飞行、结算页 */
-import { ZONES, zoneOfPower, type Pending } from '@dt/shared';
+import { GLOBAL_EVENTS, ZONES, zoneOfPower, type GlobalEventId, type Pending } from '@dt/shared';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
 
@@ -14,6 +14,16 @@ export interface SheetSpec {
   /** 选项的展示文字 */
   optionLabel: (k: number) => string;
   grid?: boolean;
+}
+
+/** 掷骰前的行动栏：手牌 / 技能 / 额外按钮 */
+export interface ActsSpec {
+  enabled: boolean;
+  items: { id: string; name: string; desc: string }[];
+  skill: { name: string; desc: string; cd: number } | null;
+  extras: { label: string; title: string; on: () => void }[];
+  onItem: (id: string) => void;
+  onSkill: () => void;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(root: ParentNode, s: string) => root.querySelector(s) as T;
@@ -48,6 +58,8 @@ export class Hud {
         <div id="gauge"></div><div id="glab" class="st2"></div>
         <div id="dice"><div class="die" id="d1"></div><div class="die" id="d2"></div></div>
         <div id="toast" class="st3"></div>
+        <div id="gbanner"></div>
+        <div id="acts"></div>
         <div id="chips"></div>
         <div id="sheet"><div class="rib st2"></div><div class="kind"></div><div class="bimg"><img alt=""></div><div class="info"></div><div class="opts"></div><div class="tbar"><i></i></div><button class="bt no">放 弃</button></div>
         <div id="fx"></div>
@@ -120,6 +132,32 @@ export class Hud {
     };
     f();
     this.deadlineTimer = window.setInterval(f, 250);
+  }
+
+  // ───────────────────────── 全局事件横幅 / 行动栏 ─────────────────────────
+  setGlobalEvent(id: GlobalEventId | null) {
+    const el = $(this.stage, '#gbanner');
+    if (!id || id === 'none') { el.classList.remove('show'); return; }
+    const d = GLOBAL_EVENTS[id];
+    el.innerHTML = `<b>全局事件 · ${esc(d.name)}</b><span>${esc(d.desc)}（本回合）</span>`;
+    el.classList.add('show');
+  }
+
+  /** 渲染掷骰前行动栏；enabled=false 时只展示不可点 */
+  setActs(spec: ActsSpec | null) {
+    const box = $(this.stage, '#acts');
+    box.innerHTML = '';
+    if (!spec || (!spec.items.length && !spec.skill && !spec.extras.length)) { box.classList.remove('show'); return; }
+    box.classList.add('show'); box.classList.toggle('off', !spec.enabled);
+    const mk = (cls: string, html: string, title: string, on: () => void, dis = false) => {
+      const b = document.createElement('button');
+      b.className = 'act ' + cls + (dis ? ' cd' : ''); b.innerHTML = html; b.title = title;
+      b.onclick = (e) => { e.stopPropagation(); if (dis || !spec.enabled) return; AU.unlock(); AU.play('click'); on(); };
+      box.appendChild(b);
+    };
+    spec.items.forEach((it) => mk('item', `<b>${esc(it.name)}</b><small>${esc(it.desc)}</small>`, it.desc, () => spec.onItem(it.id)));
+    if (spec.skill) mk('skill', `<b>${esc(spec.skill.name)}</b><small>${spec.skill.cd > 0 ? `冷却 ${spec.skill.cd} 回合` : '可用'}</small>`, spec.skill.desc, spec.onSkill, spec.skill.cd > 0);
+    spec.extras.forEach((x) => mk('extra', `<b>${esc(x.label)}</b>`, x.title, x.on));
   }
 
   // ───────────────────────── 提示 ─────────────────────────

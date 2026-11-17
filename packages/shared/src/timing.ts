@@ -32,6 +32,7 @@ export const ANIM = {
   roadblockPlaced: 800,
   roadblockHit: 1000,
   demolish: 1000,
+  globalEvent: 800,
   prompt: 0,
   decline: 150,
   end: 0,

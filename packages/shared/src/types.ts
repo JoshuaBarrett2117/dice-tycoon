@@ -1,4 +1,5 @@
 import type { CharId } from './characters';
+import type { GlobalEventId } from './config';
 
 export type Phase = 'roll' | 'choose' | 'ended';
 export type WinReason = 'triple' | 'line' | 'tour' | 'bankrupt' | 'assets';
@@ -34,6 +35,8 @@ export interface PlayerState {
   xingPerfect: boolean;
   /** 遥控骰子：下一次掷骰的指定总点数 */
   forcedSum: number | null;
+  /** 机会卡「双倍月薪」：下一次经过起点的月薪 ×RULES.doubleSalaryMult */
+  doubleSalary: boolean;
 }
 
 export type ItemId = 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport';
@@ -66,8 +69,12 @@ export interface Pending {
   again: boolean;
 }
 
+/** 当前生效的全局经济事件；untilRound 为最后生效的回合（含） */
+export interface GlobalEventState { id: Exclude<GlobalEventId, 'none'>; untilRound: number }
+
 export interface GameState {
-  version: 1;
+  /** 2 = v0.2（新增 globalEvent / doubleSalary 等）；旧快照用 migrateState 升级 */
+  version: 2;
   seed: number;
   rng: number;
   /** 每次合法操作 +1，客户端据此丢弃过期快照 */
@@ -80,6 +87,8 @@ export interface GameState {
   phase: Phase;
   pending: Pending | null;
   festivalTile: number | null;
+  /** 全局经济事件（无事件时为 null） */
+  globalEvent: GlobalEventState | null;
   /** 场上的路障 */
   roadblocks: Roadblock[];
   winner: number | null;
@@ -95,7 +104,9 @@ export type Action =
   /** 掷骰前使用角色主动技能 */
   | { type: 'useSkill' };
 
-export type CardId = 'bonus' | 'fine' | 'toStart' | 'island' | 'freeUpgrade' | 'shield';
+export type CardId =
+  | 'bonus' | 'fine' | 'toStart' | 'island' | 'freeUpgrade' | 'shield'
+  | 'birthday' | 'forward' | 'back' | 'itemSupply' | 'taxRefund' | 'doubleSalary';
 
 /** 引擎输出的事件流：客户端按顺序播放动画，服务端原样广播 */
 export type GameEvent =
@@ -107,7 +118,7 @@ export type GameEvent =
   | { t: 'island'; seat: number; turns: number }
   | { t: 'islandStay'; seat: number; left: number }
   | { t: 'islandEscape'; seat: number }
-  | { t: 'pay'; from: number; to: number | null; amount: number; tile: number | null; reason: 'toll' | 'tax' | 'fine' | 'takeover' }
+  | { t: 'pay'; from: number; to: number | null; amount: number; tile: number | null; reason: 'toll' | 'tax' | 'fine' | 'takeover' | 'birthday' }
   | { t: 'shieldUsed'; seat: number; tile: number }
   | { t: 'buy'; seat: number; tile: number; lv: number; cost: number }
   | { t: 'upgrade'; seat: number; tile: number; from: number; lv: number; cost: number }
@@ -124,6 +135,7 @@ export type GameEvent =
   | { t: 'roadblockPlaced'; seat: number; tile: number }
   | { t: 'roadblockHit'; seat: number; owner: number; tile: number }
   | { t: 'demolish'; seat: number; from: number; tile: number; lv: number }
+  | { t: 'globalEvent'; id: GlobalEventId; round: number }
   | { t: 'prompt'; pending: Pending }
   | { t: 'decline'; seat: number; kind: string }
   | { t: 'end'; winner: number; reason: WinReason };

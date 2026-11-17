@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BOARD, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  applyAction, botAction, createGame, investedValue, takeoverCost, tollOf,
+  BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
+  applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, takeoverCost, tollOf,
   type GameState, type SeatConfig,
 } from '../src';
 
@@ -337,5 +337,173 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     expect(a.s).toEqual(b.s);
     expect(a.s.phase).toBe('ended');
     for (let seed = 100; seed < 130; seed++) expect(playOut(seed).s.phase).toBe('ended');
+  });
+});
+
+describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
+  const fresh = (seed = 21) => createGame({ seed, seats: SEATS });
+  const nextRoundStart = (s0: GameState) => {
+    // 让全员依次结束回合直到轮回；返回刚进入新一轮时的 { state, events }
+    let s = s0;
+    for (let n = 0; n < 200; n++) {
+      const r = ok(s, s.turn, botAction(s, s.turn));
+      const wasRound = s.round;
+      s = r.state;
+      if (s.round > wasRound) return { s, events: r.events };
+    }
+    throw new Error('未进入下一轮');
+  };
+
+  it('全局事件：每 3 回合在回合开始抽取，持续 1 回合；其余回合无事件', () => {
+    let s = fresh(5);
+    const draws: number[] = [];
+    for (let n = 0; n < 4000 && s.phase !== 'ended' && s.round <= 13; n++) {
+      const wasRound = s.round;
+      const r = ok(s, s.turn, botAction(s, s.turn));
+      s = r.state;
+      if (s.round !== wasRound) {
+        if (s.round % RULES.globalEventEvery !== 0 && s.globalEvent) throw new Error('非抽取回合不应有事件');
+        if (r.events.some((e) => e.t === 'globalEvent' && s.round % RULES.globalEventEvery === 0)) draws.push(s.round);
+        if (s.globalEvent) expect(s.globalEvent.untilRound).toBe(s.round);
+      }
+    }
+    expect(draws.length).toBeGreaterThanOrEqual(2);
+    draws.forEach((r) => expect(r % RULES.globalEventEvery).toBe(0));
+  });
+
+  it('全局事件抽取覆盖所有类型且只走 state.rng（同 seed 可复现）', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 400; seed++) {
+      const s = fresh(seed); s.round = 2;
+      s.turn = 3; // 下一位是 0 号 → 进入第 3 回合
+      s.seats[3].pos = ISLAND_INDEX; s.seats[3].islandTurns = 2; // 在岛上不掷双数则直接结束回合
+      const r = ok(s, 3, { type: 'roll', zone: 1 });
+      const e = r.events.find((x) => x.t === 'globalEvent');
+      if (e && e.t === 'globalEvent') seen.add(e.id);
+      const again = ok(s, 3, { type: 'roll', zone: 1 });
+      expect(again.state.globalEvent).toEqual(r.state.globalEvent);
+    }
+    expect([...seen].sort()).toEqual([...GLOBAL_EVENT_IDS].sort());
+  });
+
+  it('全局事件倍率：旅游旺季 / 地产热潮 / 经济萧条 / 建设补贴；过期后恢复', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 1, lv: 2 };  // 东京（城市，小狸持有）
+    s.tiles[5] = { owner: 1, lv: 0 };  // 桂林（观光地）
+    const city = tollOf(s, 9), tour = tollOf(s, 5);
+    s.globalEvent = { id: 'tourBoom', untilRound: s.round };
+    expect(tollOf(s, 5)).toBe(tour * 2);
+    expect(tollOf(s, 9)).toBe(city);
+    s.globalEvent = { id: 'propertyBoom', untilRound: s.round };
+    expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[2] * 1.3));
+    s.globalEvent = { id: 'recession', untilRound: s.round };
+    expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[2] * 0.7));
+    s.globalEvent = { id: 'subsidy', untilRound: s.round };
+    const cost = buildCost(s, 0, 9, 0, 1);
+    s.globalEvent = null;
+    expect(cost).toBe(Math.round(9 * (1 - 0.08) * 0.7));
+    expect(cost).toBeLessThan(buildCost(s, 0, 9, 0, 1));
+    // 已过期的事件不再生效
+    s.globalEvent = { id: 'recession', untilRound: s.round - 1 };
+    expect(tollOf(s, 9)).toBe(city);
+  });
+
+  it('经济萧条同时压低月薪', () => {
+    const s = fresh(); s.seats[0].pos = 30; s.globalEvent = { id: 'recession', untilRound: s.round };
+    for (let seed = 1; seed < 300; seed++) {
+      const t = structuredClone(s); t.rng = seed;
+      const r = ok(t, 0, { type: 'roll', zone: 0 });
+      const e = r.events.find((x) => x.t === 'salary');
+      if (e && e.t === 'salary') { expect(e.amount).toBe(Math.round(RULES.salary * 0.7)); return; }
+    }
+    throw new Error('未经过起点');
+  });
+
+  it('叠加顺序：先节庆/色组/持有者倍率，再全局倍率，最后取整一次', () => {
+    const s = fresh();
+    GROUPS.g3.forEach((i) => (s.tiles[i] = { owner: 2, lv: 1 })); // 老王集齐 g3（东京、大阪）
+    s.festivalTile = 9;
+    s.seats[2].doubleToll = true;
+    s.globalEvent = { id: 'propertyBoom', untilRound: s.round };
+    const expected = Math.round(18 * RULES.tollMult[1] * RULES.festivalMult * RULES.groupSetTollMult * (1 + 0.1) * RULES.doubleTollMult * 1.3);
+    expect(tollOf(s, 9)).toBe(expected);
+  });
+
+  it('色组集齐：该组城市过路费 ×1.5，缺一块则无加成；观光地不受影响', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 0, lv: 1 };
+    const base = tollOf(s, 9);
+    s.tiles[10] = { owner: 0, lv: 0 };
+    expect(groupSetOwner(s, 9)).toBe(0);
+    expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[1] * RULES.groupSetTollMult));
+    expect(tollOf(s, 9)).toBeGreaterThan(base);
+    s.tiles[10] = { owner: 1, lv: 0 };
+    expect(groupSetOwner(s, 9)).toBeNull();
+    expect(tollOf(s, 9)).toBe(base);
+  });
+
+  const cardRun = (cardId: string, setup: (s: GameState) => void, check: (r: ReturnType<typeof ok>, s: GameState) => void) => {
+    // 0 号站在起点，遥控 2 点落到机会格（2），搜索能抽到指定卡的 rng
+    for (let seed = 1; seed < 6000; seed++) {
+      const s = fresh(); setup(s); s.rng = seed; s.seats[0].forcedSum = 2;
+      const r = applyAction(s, 0, { type: 'roll', zone: 0 });
+      if (!r.ok) continue;
+      const c = r.events.find((e) => e.t === 'card');
+      if (c && c.t === 'card' && c.card === cardId) { check(r, s); return; }
+    }
+    throw new Error('没抽到 ' + cardId);
+  };
+
+  it('机会卡 12 种：生日派对', () => {
+    cardRun('birthday', () => {}, (r) => {
+      expect(r.state.seats[0].cash).toBe(RULES.startCash + 3 * RULES.birthdayGift);
+      [1, 2, 3].forEach((i) => expect(r.state.seats[i].cash).toBe(RULES.startCash - RULES.birthdayGift));
+    });
+  });
+  it('机会卡：前进 3 步按落地结算', () => {
+    cardRun('forward', () => {}, (r) => {
+      expect(r.state.seats[0].pos).toBe(5); // 机会(2)+3 = 桂林(观光地)
+      expect(r.state.pending?.kind).toBe('buy');
+    });
+  });
+  it('机会卡：后退 3 步（经过起点不领月薪），落地结算', () => {
+    cardRun('back', (s) => { s.tiles[31] = { owner: 1, lv: 1 }; }, (r) => {
+      expect(r.state.seats[0].pos).toBe(31);
+      expect(r.events.some((e) => e.t === 'salary')).toBe(false);
+      expect(r.events.some((e) => e.t === 'pay' && e.reason === 'toll' && e.tile === 31)).toBe(true);
+    });
+  });
+  it('机会卡：道具补给（满手牌改发现金）', () => {
+    cardRun('itemSupply', (s) => { s.seats[0].items = []; }, (r) => expect(r.state.seats[0].items).toHaveLength(1));
+    cardRun('itemSupply', (s) => { s.seats[0].items = ['shield', 'shield', 'shield']; }, (r) => {
+      expect(r.state.seats[0].items).toHaveLength(RULES.itemMax);
+      expect(r.state.seats[0].cash).toBe(RULES.startCash + RULES.itemSupplyCash);
+    });
+  });
+  it('机会卡：税务返还（10%，上限 20 万）', () => {
+    cardRun('taxRefund', () => {}, (r) => expect(r.state.seats[0].cash).toBe(RULES.startCash + Math.min(RULES.refundCap, Math.round(RULES.startCash * RULES.refundRate))));
+    cardRun('taxRefund', (s) => { s.seats[0].cash = 5000; }, (r) => expect(r.state.seats[0].cash).toBe(5000 + RULES.refundCap));
+  });
+  it('机会卡：双倍月薪只生效一次', () => {
+    cardRun('doubleSalary', () => {}, (r) => {
+      expect(r.state.seats[0].doubleSalary).toBe(true);
+      const s = structuredClone(r.state);
+      s.seats[0].pos = 30; s.seats[0].forcedSum = 4; s.turn = 0; s.phase = 'roll'; s.pending = null;
+      const r2 = ok(s, 0, { type: 'roll', zone: 0 });
+      const e = r2.events.find((x) => x.t === 'salary');
+      expect(e && e.t === 'salary' && e.amount).toBe(RULES.salary * RULES.doubleSalaryMult);
+      expect(r2.state.seats[0].doubleSalary).toBe(false);
+    });
+  });
+
+  it('migrateState：v1 快照补齐新字段', () => {
+    const s = fresh() as unknown as Record<string, unknown>;
+    const old = structuredClone(s) as { version: number; globalEvent?: unknown; seats: { doubleSalary?: unknown }[] };
+    old.version = 1; delete old.globalEvent; delete old.seats[0].doubleSalary;
+    const m = migrateState(old);
+    expect(m.version).toBe(2);
+    expect(m.globalEvent).toBeNull();
+    expect(m.seats[0].doubleSalary).toBe(false);
+    expect(() => migrateState({ version: 9 })).toThrow();
   });
 });
