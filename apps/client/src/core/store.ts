@@ -1,5 +1,5 @@
 import {
-  PROFILE, QUESTS, THEMES, THEME_DEFAULT, THEME_KEY, type ThemeId, addHistory, parseQuests, serializeQuests, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
+  BOARD_DEFAULT, BOARD_IDS, BOARD_KEY, type BoardId, PROFILE, QUESTS, THEMES, THEME_DEFAULT, THEME_KEY, type ThemeId, addHistory, parseQuests, serializeQuests, parseHistory, parseProfile, removeHistory, serializeHistory, serializeProfile,
   type GameRecord, type HistoryEntry, type Profile, type QuestsState,
 } from '@dt/shared';
 
@@ -46,3 +46,7 @@ export const saveQuests = (q: QuestsState) => set(QUESTS.key, serializeQuests(q)
 /** 棋盘主题（v0.7）：只存本地，读失败回落默认 */
 export const loadTheme = (): ThemeId => { const v = get(THEME_KEY); return v && v in THEMES ? (v as ThemeId) : THEME_DEFAULT; };
 export const saveTheme = (id: ThemeId) => set(THEME_KEY, id);
+
+/** 棋盘选择（v1.1）：只存本地，读失败回落经典 */
+export const loadBoard = (): BoardId => { const v = get(BOARD_KEY); return v && (BOARD_IDS as string[]).includes(v) ? (v as BoardId) : BOARD_DEFAULT; };
+export const saveBoard = (id: BoardId) => set(BOARD_KEY, id);

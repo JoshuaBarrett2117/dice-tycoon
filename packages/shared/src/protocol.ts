@@ -3,6 +3,7 @@
  * 服务端权威：客户端只发「意图」，服务端校验后广播新快照 + 事件流。
  */
 import type { CharId } from './characters';
+import type { BoardId } from './config';
 import type { Action, GameEvent, GameState } from './types';
 import type { GameRecord } from './replay';
 
@@ -15,6 +16,8 @@ export interface JoinOptions {
   spectate?: boolean;
   /** 快速匹配：用 joinOrCreate 进入匹配房，凑满 4 人或超时由机器人补位后自动开局 */
   quick?: boolean;
+  /** v1.1：创建房间时房主选定的棋盘；缺省经典 */
+  board?: BoardId;
 }
 
 export interface LobbySeat { sessionId: string | null; name: string; charId: CharId; isBot: boolean; ready: boolean; connected: boolean }
@@ -31,6 +34,7 @@ export interface RoomBrief {
   players: string[];
   bots: number;
   round: number | null;
+  board?: BoardId;
   spectators: number;
   maxSpectators: number;
 }
@@ -38,7 +42,7 @@ export interface RoomBrief {
 /** 服务端 → 客户端 */
 export interface ServerMessages {
   /** 房间等待阶段的座位信息 */
-  lobby: { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus };
+  lobby: { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus; /** v1.1 当前棋盘 */ board?: BoardId };
   /** 观战人数变化（房间内所有人都会收到） */
   spectators: { count: number; max: number };
   /** 你在对局中的座位号 */
@@ -54,6 +58,8 @@ export interface ServerMessages {
 export interface ClientMessages {
   start: Record<string, never>;
   action: Action;
+  /** v1.1：房主在开局前切换棋盘 */
+  setBoard: { board: BoardId };
   /** 请求导出本局回放 JSON（对局开始后可用） */
   exportReplay: Record<string, never>;
 }

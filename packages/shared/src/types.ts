@@ -1,5 +1,5 @@
 import type { CharId } from './characters';
-import type { GlobalEventId } from './config';
+import type { GlobalEventId, BoardId } from './config';
 
 export type Phase = 'roll' | 'choose' | 'ended';
 export type WinReason = 'triple' | 'line' | 'tour' | 'bankrupt' | 'assets';
@@ -105,6 +105,8 @@ export interface GameState {
   version: 2;
   /** v0.7：本局启用特殊格（传送 / 奖金）；旧快照无此字段视为 false */
   specials?: boolean;
+  /** v1.1：棋盘 id；缺省 = 经典棋盘（旧快照 / 旧回放兼容） */
+  board?: BoardId;
   /** v0.8：道具抽取池含换位 / 免税 / 冻结；旧快照与旧回放无此字段，沿用 7 种旧池以保证重放一致 */
   itemsV8?: boolean;
   seed: number;
@@ -195,4 +197,4 @@ export type ApplyResult = ApplyOk | ApplyErr;
 /** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string; difficulty?: BotDifficulty }
-export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean; /** v0.8 新道具池；缺省 false（旧回放兼容） */ itemsV8?: boolean }
+export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean; /** v0.8 新道具池；缺省 false（旧回放兼容） */ itemsV8?: boolean; /** v1.1 棋盘 id；缺省 = 经典 */ board?: BoardId }

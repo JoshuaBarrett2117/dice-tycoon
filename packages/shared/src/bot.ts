@@ -3,7 +3,7 @@
  * 策略刻意简单、可读；v0.5 起按难度（简单/普通/困难）参数化（BOT_LEVELS）。
  * 决策均为纯函数：「随机」只用对局状态的确定性哈希，不调用 Math.random、不改状态。
  */
-import { BOARD, BOARD_SIZE, GROUPS, TOURS } from './board';
+import { BOARD_SIZE, boardOf } from './board';
 import { BOT_DEFAULT_DIFFICULTY, BOT_LEVELS, ZONES } from './config';
 import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf, totalAssets } from './engine';
 import type { Action, GameState } from './types';
@@ -20,12 +20,12 @@ function chance(s: GameState, seat: number, salt: number): number {
 
 /** 评估落在某格的好坏（越大越好） */
 function tileScore(s: GameState, seat: number, i: number): number {
-  const d = BOARD[i], t = s.tiles[i], cash = s.seats[seat].cash, L = lv(s, seat);
+  const d = boardOf(s).tiles[i], t = s.tiles[i], cash = s.seats[seat].cash, L = lv(s, seat);
   if (d.kind === 'city' || d.kind === 'tour') {
     if (t.owner == null) {
       let v = d.price <= cash ? 3 : 0;
-      if (d.group && GROUPS[d.group].some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
-      if (d.kind === 'tour' && TOURS.some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
+      if (d.group && boardOf(s).groups[d.group].some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
+      if (d.kind === 'tour' && boardOf(s).tours.some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
       return v;
     }
     if (t.owner === seat) return t.lv < 4 ? 2 : 0.5;
@@ -84,11 +84,11 @@ export function preRollAction(s: GameState, seat: number): Action | null {
     if (tg !== undefined && totalAssets(s, tg) >= totalAssets(s, seat)) tries.push({ type: 'useItem', item: 'freeze', target: tg });
   }
   if (has('freeBuild')) {
-    const c = itemTargets(s, seat, 'freeBuild').sort((a, b) => BOARD[b].price - BOARD[a].price)[0];
+    const c = itemTargets(s, seat, 'freeBuild').sort((a, b) => boardOf(s).tiles[b].price - boardOf(s).tiles[a].price)[0];
     if (c !== undefined) tries.push({ type: 'useItem', item: 'freeBuild', target: c });
   }
   if (has('demolish')) {
-    const c = itemTargets(s, seat, 'demolish').sort((a, b) => s.tiles[b].lv - s.tiles[a].lv || BOARD[b].price - BOARD[a].price)[0];
+    const c = itemTargets(s, seat, 'demolish').sort((a, b) => s.tiles[b].lv - s.tiles[a].lv || boardOf(s).tiles[b].price - boardOf(s).tiles[a].price)[0];
     if (c !== undefined && s.tiles[c].lv >= 2) tries.push({ type: 'useItem', item: 'demolish', target: c });
   }
   if (has('shield') && !p.shield && cash < 150) tries.push({ type: 'useItem', item: 'shield' });
@@ -100,7 +100,7 @@ export function preRollAction(s: GameState, seat: number): Action | null {
   if (p.skillCd === 0) {
     // 小狸只在前方有可收购的他人城市时才用，其余角色冷却好了就用
     const ahead = (i: number) => { const d = (i - p.pos + BOARD_SIZE) % BOARD_SIZE; return d >= 2 && d <= 12; };
-    const liOk = s.tiles.some((t, i) => t.owner != null && t.owner !== seat && t.lv < 4 && BOARD[i].kind === 'city' && ahead(i)) && cash >= 120;
+    const liOk = s.tiles.some((t, i) => t.owner != null && t.owner !== seat && t.lv < 4 && boardOf(s).tiles[i].kind === 'city' && ahead(i)) && cash >= 120;
     if ((p.charId !== 'li' || liOk) && chance(s, seat, 4) < L.skillUse) tries.push({ type: 'useSkill' });
   }
   for (const a of tries) if (a && valid(a)) return a;
@@ -141,10 +141,10 @@ export function mortgageDecision(s: GameState, seat: number): Action | null {
 
 /** 竞拍估值：地价 ×0.9，凑同色组 / 观光地每多一块 +35%，上限内最低价出价，超限或会掏空现金则弃拍 */
 function auctionLimit(s: GameState, seat: number, tile: number): number {
-  const d = BOARD[tile];
+  const d = boardOf(s).tiles[tile];
   let own = 0;
-  if (d.kind === 'city' && d.group) own = GROUPS[d.group].filter((x) => s.tiles[x].owner === seat).length;
-  else if (d.kind === 'tour') own = TOURS.filter((x) => s.tiles[x].owner === seat).length;
+  if (d.kind === 'city' && d.group) own = boardOf(s).groups[d.group].filter((x) => s.tiles[x].owner === seat).length;
+  else if (d.kind === 'tour') own = boardOf(s).tours.filter((x) => s.tiles[x].owner === seat).length;
   const L = lv(s, seat);
   return Math.round(d.price * (L.auctionBase + L.auctionGroup * own));
 }

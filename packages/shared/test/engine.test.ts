@@ -1305,3 +1305,52 @@ describe('v1.0 风控', () => {
     expect(sum.steps).toBe(rec.toRecord().actions.length);
   });
 });
+
+import { BOARDS, BOARD_CFGS, BOARD_IDS, boardOf, type BoardId } from '../src';
+describe('v1.1 第二张棋盘', () => {
+  const mk = (board?: BoardId) => createGame({ seed: 5, seats: SEATS, specials: true, ...(board ? { board } : {}) });
+  const roll = (s: GameState, from: number, sum: number) => {
+    const t = structuredClone(s); t.seats[0].pos = from; t.seats[0].forcedSum = sum; t.turn = 0; t.phase = 'roll'; t.pending = null;
+    return t;
+  };
+  it('棋盘配置：32 格、角格位置固定、至少 1 传送 + 1 奖金；缺省 = 经典', () => {
+    expect(BOARD_IDS).toEqual(expect.arrayContaining(['classic', 'island']));
+    for (const id of BOARD_IDS) {
+      const b = BOARDS[id];
+      expect(b.tiles.length).toBe(32);
+      expect([0, 8, 16, 24].map((i) => b.tiles[i].corner)).toEqual(['start', 'island', 'festival', 'airport']);
+      const sp = Object.values(b.specials);
+      expect(sp.some((x) => x.kind === 'teleport')).toBe(true);
+      expect(sp.some((x) => x.kind === 'bonus')).toBe(true);
+      for (const [i, x] of Object.entries(b.specials)) { expect(b.tiles[+i].kind).toBe('card'); if (x.to != null) expect(['city', 'tour']).toContain(b.tiles[x.to].kind); }
+    }
+    expect(boardOf(mk()).id).toBe('classic');
+    expect(mk().board).toBeUndefined();
+    expect(mk('island').board).toBe('island');
+  });
+  it('海岛棋盘：奖金格与传送格复用特殊格结算', () => {
+    const t = roll(mk('island'), 24, 2);
+    const cash = t.seats[0].cash;
+    const r = ok(t, 0, { type: 'roll', zone: 1 });
+    expect(r.state.seats[0].pos).toBe(26);
+    expect(r.state.seats[0].cash).toBe(cash + BOARD_CFGS.island.specials[26].amount!);
+    const r4 = ok(roll(mk('island'), 7, 3), 0, { type: 'roll', zone: 1 });
+    expect(r4.state.seats[0].pos).toBe(BOARD_CFGS.island.specials[10].to);
+  });
+  it('地价取自所选棋盘', () => {
+    expect(investedValue(mk('island'), 1)).toBe(BOARD_CFGS.island.groupPrice.g1);
+    expect(investedValue(mk(), 1)).toBe(BOARD_CFGS.classic.groupPrice.g1);
+  });
+  it('机器人三档在两张棋盘各打若干局均可结束，且回放一致（经典无 board 字段）', () => {
+    const DIFFS: BotDifficulty[] = ['easy', 'normal', 'hard'];
+    for (const board of ['classic', 'island'] as BoardId[]) for (const d of DIFFS) for (let seed = 1; seed <= 4; seed++) {
+      const cfg = { seed: seed * 17, seats: SEATS.map((x) => ({ ...x, isBot: true, difficulty: d })), specials: true, itemsV8: true, board };
+      let s = createGame(cfg); const rec = new ReplayRecorder(cfg); let n = 0;
+      while (s.phase !== 'ended' && n++ < 8000) { const a = actorOf(s); const act = botAction(s, a); rec.push(a, act); s = ok(s, a, act).state; }
+      expect(s.phase).toBe('ended');
+      const json = JSON.parse(JSON.stringify(rec.toRecord(s)));
+      expect(json.board).toBe(board === 'island' ? 'island' : undefined);
+      expect(replayGame(json).state).toEqual(s);
+    }
+  });
+});

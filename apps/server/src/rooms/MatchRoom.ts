@@ -1,8 +1,8 @@
 import { Room, type Client } from '@colyseus/core';
 import {
-  CHARACTERS, CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
+  BOARD_DEFAULT, BOARD_IDS, CHARACTERS, CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
   ActionGuard, BOT_DEFAULT_DIFFICULTY, MatchQueue, buildMatchSummary, checkReplayConsistency, classifyReject, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
-  type Action, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
+  type Action, type BoardId, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
 } from '@dt/shared';
 import { registry } from '../registry';
 import { track } from '../telemetry';
@@ -26,6 +26,8 @@ export class MatchRoom extends Room {
 
   private seats: LobbySeat[] = [];
   private host: string | null = null;
+  /** v1.1 棋盘：房主在开局前选定，缺省经典 */
+  private board: BoardId = BOARD_DEFAULT;
   private game: GameState | null = null;
   private recorder: ReplayRecorder | null = null;
   /** sessionId → 透传的 accountId（只携带，不校验） */
@@ -40,6 +42,7 @@ export class MatchRoom extends Room {
   private queueTimer: { clear(): void } | null = null;
 
   onCreate(options: Partial<JoinOptions> = {}) {
+    if (options.board && BOARD_IDS.includes(options.board)) this.board = options.board;
     if (options.quick) {
       const t = Number(process.env.MATCH_TIMEOUT_MS);
       this.queue = new MatchQueue(t > 0 ? { timeoutMs: t } : {});
@@ -49,6 +52,13 @@ export class MatchRoom extends Room {
     this.onMessage('start', (client) => {
       if (this.queue) { client.send('error', { message: '快速匹配房会自动开局' }); return; }
       this.handleStart(client);
+    });
+    this.onMessage('setBoard', (client, m: { board?: BoardId }) => {
+      if (this.game) { client.send('error', { message: '对局已开始，无法更换棋盘' }); return; }
+      if (client.sessionId !== this.host) { client.send('error', { message: '只有房主可以选择棋盘' }); return; }
+      if (!m || !BOARD_IDS.includes(m.board as BoardId)) { client.send('error', { message: '无效的棋盘' }); return; }
+      this.board = m.board as BoardId;
+      this.broadcastLobby();
     });
     this.onMessage('action', (client, action: Action) => this.handleAction(client, action));
     this.onMessage('exportReplay', (client) => {
@@ -158,6 +168,7 @@ export class MatchRoom extends Room {
       seed,
       specials: true,
       itemsV8: true,
+      ...(this.board !== BOARD_DEFAULT ? { board: this.board } : {}),
       seats: this.seats.map((s, i) => ({
         id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot,
         ...(s.isBot ? { difficulty: BOT_DEFAULT_DIFFICULTY } : {}),
@@ -251,7 +262,7 @@ export class MatchRoom extends Room {
   private broadcastLobby() {
     const q = this.queue && !this.game ? this.queue.peek(Date.now()) : null;
     this.broadcast('lobby', {
-      seats: this.seats, hostSessionId: this.host, roomId: this.roomId, started: !!this.game,
+      seats: this.seats, hostSessionId: this.host, roomId: this.roomId, started: !!this.game, board: this.board,
       ...(q && q.kind === 'waiting' ? { quick: { waiting: q.waiting, size: q.size, remainingMs: Math.max(0, q.deadline - Date.now()) } } : {}),
     });
     // 注意 setMetadata 是整体替换：quick 必须带上，否则 joinOrCreate({quick}) 的 filterBy 就找不到这个房间了
@@ -272,6 +283,7 @@ export class MatchRoom extends Room {
       players: this.seats.filter((s) => !s.isBot).map((s) => s.name),
       bots: this.seats.filter((s) => s.isBot).length,
       round: this.game?.round ?? null,
+      board: this.board,
       spectators: this.spectators.size,
       maxSpectators: SPECTATE.maxSpectators,
     };

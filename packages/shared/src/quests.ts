@@ -3,7 +3,7 @@
  * 进度只来自对局记录：digestRecord(GameRecord) → GameDigest → applyDigest(state, digest)。
  * 不碰引擎规则；任务抽取由日期字符串确定性哈希决定，不用 Math.random。
  */
-import { GROUPS } from './board';
+import { boardOf } from './board';
 import { QUESTS } from './config';
 import { totalAssets } from './engine';
 import { ReplayPlayer, type GameRecord } from './replay';
@@ -14,7 +14,6 @@ export interface GameDigest {
   buys: number; events: number; sets: number; peakAssets: number;
 }
 
-const GROUP_LIST = Object.values(GROUPS);
 
 /** 由已结束的回放记录推导摘要；找不到我、记录未结束或损坏返回 null */
 export function digestRecord(rec: GameRecord, accountId: string, id: string, online: boolean): GameDigest | null {
@@ -33,7 +32,7 @@ export function digestRecord(rec: GameRecord, accountId: string, id: string, onl
       }
       peak = Math.max(peak, totalAssets(f.state, seat));
       // 色组独占：统计「集齐的色组数」上升的次数（抵押中的不计）
-      const now = GROUP_LIST.filter((g) => g.every((i) => f.state.tiles[i].owner === seat && !f.state.tiles[i].mortgaged)).length;
+      const now = Object.values(boardOf(f.state).groups).filter((g) => g.every((i) => f.state.tiles[i].owner === seat && !f.state.tiles[i].mortgaged)).length;
       if (now > prevSets) sets += now - prevSets;
       prevSets = now;
     }

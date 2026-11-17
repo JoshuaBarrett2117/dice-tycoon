@@ -224,3 +224,51 @@ export type ThemeId = keyof typeof THEMES;
 export const THEME_IDS = Object.keys(THEMES) as ThemeId[];
 export const THEME_DEFAULT: ThemeId = 'classic';
 export const THEME_KEY = 'dt:theme:v1';
+
+/**
+ * 棋盘配置（v1.1）：布局、地价、特殊格位置与数值全部在此（标注「提案值」，可调）。
+ * 均为 32 格；角格固定 0 起点 / 8 无人岛 / 16 环球节庆 / 24 环球航班。
+ * 特殊格叠加在「机会」格之上，复用 resolveTile 的 case 'card' 逻辑，不另写结算。
+ */
+export type BoardId = 'classic' | 'island';
+export const BOARD_DEFAULT: BoardId = 'classic';
+export const BOARD_KEY = 'dt:board:v1';
+type SpecialDef = { kind: 'teleport' | 'bonus'; name: string; to?: number; amount?: number; desc: string };
+export interface BoardCfg {
+  name: string;
+  desc: string;
+  /** 色组地价（万）与观光地地价（万）——提案值 */
+  groupPrice: Record<'g1' | 'g2' | 'g3' | 'g4' | 'g5' | 'g6' | 'g7' | 'g8', number>;
+  tourPrice: number;
+  /** [名称, 类型或色组, 角格id?]，共 32 项 */
+  raw: [string, string, string?][];
+  specials: Record<number, SpecialDef>;
+}
+export const BOARD_CFGS: Record<BoardId, BoardCfg> = {
+  classic: {
+    name: '环球之旅', desc: '经典 32 格环球城市',
+    groupPrice: { g1: 10, g2: 14, g3: 18, g4: 22, g5: 26, g6: 30, g7: 34, g8: 40 }, tourPrice: 20,
+    raw: [
+      ['起点', 'corner', 'start'], ['曼谷', 'g1'], ['机会', 'card'], ['吉隆坡', 'g1'], ['新加坡', 'g1'], ['桂林', 'tour'], ['西安', 'g2'], ['成都', 'g2'],
+      ['无人岛', 'corner', 'island'], ['东京', 'g3'], ['大阪', 'g3'], ['机会', 'card'], ['富士山', 'tour'], ['悉尼', 'g4'], ['墨尔本', 'g4'], ['奥克兰', 'g4'],
+      ['环球节庆', 'corner', 'festival'], ['开罗', 'g5'], ['机会', 'card'], ['伊斯坦布尔', 'g5'], ['圣托里尼', 'tour'], ['罗马', 'g6'], ['巴黎', 'g6'], ['伦敦', 'g6'],
+      ['环球航班', 'corner', 'airport'], ['纽约', 'g7'], ['大峡谷', 'tour'], ['旧金山', 'g7'], ['机会', 'card'], ['税务局', 'tax'], ['上海', 'g8'], ['香港', 'g8'],
+    ],
+    specials: SPECIAL_TILES,
+  },
+  island: {
+    name: '海岛度假', desc: '阳光沙滩 32 格：地价略高，传送门在 10 号、奖金格在 26 号（提案值）',
+    groupPrice: { g1: 12, g2: 15, g3: 19, g4: 23, g5: 27, g6: 31, g7: 36, g8: 42 }, tourPrice: 22,
+    raw: [
+      ['起点', 'corner', 'start'], ['巴厘岛', 'g1'], ['龙目岛', 'g1'], ['机会', 'card'], ['普吉岛', 'g1'], ['长滩岛', 'tour'], ['马尔代夫', 'g2'], ['斐济', 'g2'],
+      ['无人岛', 'corner', 'island'], ['夏威夷', 'g3'], ['机会', 'card'], ['毛伊岛', 'g3'], ['塔希提', 'tour'], ['波拉波拉', 'g4'], ['帕劳', 'g4'], ['关岛', 'g4'],
+      ['环球节庆', 'corner', 'festival'], ['冲绳', 'g5'], ['济州岛', 'g5'], ['机会', 'card'], ['圣淘沙', 'tour'], ['马略卡', 'g6'], ['圣托里尼岛', 'g6'], ['巴哈马', 'g6'],
+      ['环球航班', 'corner', 'airport'], ['塞舌尔', 'g7'], ['机会', 'card'], ['加勒比', 'g7'], ['苏梅岛', 'tour'], ['税务局', 'tax'], ['开曼群岛', 'g8'], ['百慕大', 'g8'],
+    ],
+    specials: {
+      10: { kind: 'teleport', name: '传送门', to: 21, desc: '停留时传送到马略卡（不领月薪，并结算落地）' },
+      26: { kind: 'bonus', name: '奖金格', amount: 30, desc: '停留时领取奖金 ¥30 万' },
+    },
+  },
+};
+export const BOARD_IDS = Object.keys(BOARD_CFGS) as BoardId[];

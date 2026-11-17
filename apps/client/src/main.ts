@@ -1,6 +1,6 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
-import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, pushHistory, saveProfile, saveTheme } from './core/store';
+import { BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, loadBoard, saveBoard, pushHistory, saveProfile, saveTheme } from './core/store';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -61,6 +61,7 @@ function showMenu(msg = '') {
         </button>`).join('')}</div>
       <label>单机机器人难度 <select id="diff">${(['easy', 'normal', 'hard'] as const).map((d) => `<option value="${d}" ${d === prefs.difficulty ? 'selected' : ''}>${{ easy: '简单', normal: '普通', hard: '困难' }[d]}</option>`).join('')}</select></label>
       <label>棋盘主题 <select id="theme">${THEME_IDS.map((t) => `<option value="${t}" ${t === loadTheme() ? 'selected' : ''}>${THEMES[t].name}</option>`).join('')}</select></label>
+      <label>棋盘 <select id="board">${BOARD_IDS.map((b) => `<option value="${b}" ${b === loadBoard() ? 'selected' : ''}>${BOARD_CFGS[b].name}</option>`).join('')}</select></label>
       <div class="btns">
         <button class="big gold" id="solo">单机对战<small>你 vs 3 个机器人</small></button>
         <button class="big blue" id="create">创建房间<small>好友联机，空位机器人补齐</small></button>
@@ -80,6 +81,7 @@ function showMenu(msg = '') {
     const id = (e.target as HTMLSelectElement).value as ThemeId;
     saveTheme(id); world?.setTheme(id); AU.unlock(); AU.play('click');
   };
+  m.querySelector<HTMLSelectElement>('#board')!.onchange = (e) => { saveBoard((e.target as HTMLSelectElement).value as BoardId); AU.unlock(); AU.play('click'); };
   const save = () => {
     prefs.name = (m.querySelector<HTMLInputElement>('#nm')!.value.trim() || prefs.name).slice(0, 12);
     prefs.server = m.querySelector<HTMLInputElement>('#srv')!.value.trim() || DEFAULT_SERVER;
@@ -152,7 +154,7 @@ function startSolo() {
     { id: 'bot2', name: '老周', charId: others[1], isBot: true, difficulty: prefs.difficulty },
     { id: 'bot3', name: '阿星', charId: others[2], isBot: true, difficulty: prefs.difficulty },
   ];
-  void startGame(new LocalSource(seats), 'solo');
+  void startGame(new LocalSource(seats, loadBoard()), 'solo');
 }
 
 // ───────────────────────── 在线 ─────────────────────────
@@ -161,7 +163,7 @@ async function startOnline(roomId?: string) {
   o.innerHTML = '<div class="panel"><div class="ttl">连接中…</div></div>';
   let net: NetSource;
   try {
-    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId, accountId }, roomId);
+    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId, accountId, ...(roomId ? {} : { board: loadBoard() }) }, roomId);
   } catch (err) {
     showMenu(`连接失败：${(err as Error).message || err}（请确认对战服已启动）`);
     return;
@@ -179,8 +181,10 @@ async function startOnline(roomId?: string) {
         return s ? `<div class="seat" style="--c:${CHARACTERS[s.charId].color}"><img src="${charUrl(s.charId)}" alt=""><b>${s.name}</b><small>${s.isBot ? '机器人' : s.sessionId === m.hostSessionId ? '房主' : '已加入'}</small></div>`
           : '<div class="seat empty"><b>空位</b><small>开局后由机器人补齐</small></div>';
       }).join('')}</div>
+      <label class="hint">棋盘 ${isHost ? `<select id="bsel">${BOARD_IDS.map((b) => `<option value="${b}" ${b === (m.board ?? 'classic') ? 'selected' : ''}>${BOARD_CFGS[b].name}</option>`).join('')}</select>` : `<b>${BOARD_CFGS[m.board ?? 'classic'].name}</b>`}</label>
       ${isHost ? '<button class="big gold" id="go">开始对局</button>' : '<div class="hint">等待房主开始…</div>'}
       <button class="link" id="back">离开房间</button><div class="err"></div></div>`;
+    o.querySelector<HTMLSelectElement>('#bsel')?.addEventListener('change', (e) => net.setBoard((e.target as HTMLSelectElement).value as BoardId));
     o.querySelector<HTMLButtonElement>('#go')?.addEventListener('click', () => net.start());
     o.querySelector<HTMLButtonElement>('#back')!.onclick = () => { net.dispose(); showMenu(); };
     if (m.started) {
@@ -255,7 +259,7 @@ function showRooms() {
 
 async function startSpectate(roomId: string) {
   try {
-    const net = await NetSource.spectate(prefs.server, { name: prefs.name, charId: prefs.charId, accountId }, roomId);
+    const net = await NetSource.spectate(prefs.server, { name: prefs.name, charId: prefs.charId, accountId, ...(roomId ? {} : { board: loadBoard() }) }, roomId);
     closeOverlay();
     void startGame(net);
   } catch (err) {

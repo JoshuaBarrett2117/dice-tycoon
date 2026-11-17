@@ -1,3 +1,4 @@
+import { BOARD_CFGS, BOARD_DEFAULT, type BoardId } from './config';
 /** 棋盘定义：32 格，顺时针。0 起点 / 8 无人岛 / 16 环球节庆 / 24 环球航班 */
 export type TileKind = 'corner' | 'city' | 'tour' | 'card' | 'tax';
 export type CornerId = 'start' | 'island' | 'festival' | 'airport';
@@ -15,10 +16,8 @@ export interface TileDef {
   side: number;
 }
 
-export const GROUP_PRICE: Record<GroupId, number> = {
-  g1: 10, g2: 14, g3: 18, g4: 22, g5: 26, g6: 30, g7: 34, g8: 40,
-};
-export const TOUR_PRICE = 20;
+export const GROUP_PRICE = BOARD_CFGS.classic.groupPrice;
+export const TOUR_PRICE = BOARD_CFGS.classic.tourPrice;
 
 export const GROUP_COLOR: Record<GroupId | 'tour' | 'card' | 'tax', string> = {
   g1: '#ff9a2e', g2: '#ff5fa2', g3: '#34c759', g4: '#14b8c9',
@@ -26,35 +25,48 @@ export const GROUP_COLOR: Record<GroupId | 'tour' | 'card' | 'tax', string> = {
   tour: '#0ea5e9', card: '#a855f7', tax: '#64748b',
 };
 
-type Raw = [string, TileKind | GroupId, CornerId?];
-const RAW: Raw[] = [
-  ['起点', 'corner', 'start'], ['曼谷', 'g1'], ['机会', 'card'], ['吉隆坡', 'g1'], ['新加坡', 'g1'], ['桂林', 'tour'], ['西安', 'g2'], ['成都', 'g2'],
-  ['无人岛', 'corner', 'island'], ['东京', 'g3'], ['大阪', 'g3'], ['机会', 'card'], ['富士山', 'tour'], ['悉尼', 'g4'], ['墨尔本', 'g4'], ['奥克兰', 'g4'],
-  ['环球节庆', 'corner', 'festival'], ['开罗', 'g5'], ['机会', 'card'], ['伊斯坦布尔', 'g5'], ['圣托里尼', 'tour'], ['罗马', 'g6'], ['巴黎', 'g6'], ['伦敦', 'g6'],
-  ['环球航班', 'corner', 'airport'], ['纽约', 'g7'], ['大峡谷', 'tour'], ['旧金山', 'g7'], ['机会', 'card'], ['税务局', 'tax'], ['上海', 'g8'], ['香港', 'g8'],
-];
+export interface BoardDef {
+  id: BoardId; name: string; desc: string;
+  tiles: readonly TileDef[];
+  groups: Record<GroupId, number[]>;
+  tours: number[];
+  /** 每条边上可购买的格子（城市 + 观光地），用于「整排独占」 */
+  sides: number[][];
+  specials: Record<number, { kind: 'teleport' | 'bonus'; name: string; to?: number; amount?: number; desc: string }>;
+}
 
-export const BOARD: readonly TileDef[] = RAW.map(([name, k, corner], index) => {
-  const side = index % 8 === 0 ? 0 : Math.floor(index / 8) + 1;
-  if (k === 'corner') return { index, name, kind: 'corner', corner, price: 0, side };
-  if (k === 'card' || k === 'tax') return { index, name, kind: k, price: 0, side };
-  if (k === 'tour') return { index, name, kind: 'tour', price: TOUR_PRICE, side };
-  return { index, name, kind: 'city', group: k as GroupId, price: GROUP_PRICE[k as GroupId], side };
-});
+function build(id: BoardId): BoardDef {
+  const cfg = BOARD_CFGS[id];
+  const tiles: TileDef[] = cfg.raw.map(([name, k, corner], index) => {
+    const side = index % 8 === 0 ? 0 : Math.floor(index / 8) + 1;
+    if (k === 'corner') return { index, name, kind: 'corner', corner: corner as CornerId, price: 0, side };
+    if (k === 'card' || k === 'tax') return { index, name, kind: k, price: 0, side };
+    if (k === 'tour') return { index, name, kind: 'tour', price: cfg.tourPrice, side };
+    return { index, name, kind: 'city', group: k as GroupId, price: cfg.groupPrice[k as GroupId], side };
+  });
+  if (tiles.length !== 32) throw new Error(`棋盘 ${id} 必须 32 格`);
+  const groups = Object.fromEntries(
+    (Object.keys(cfg.groupPrice) as GroupId[]).map((g) => [g, tiles.filter((t) => t.group === g).map((t) => t.index)]),
+  ) as Record<GroupId, number[]>;
+  return {
+    id, name: cfg.name, desc: cfg.desc, tiles, groups,
+    tours: tiles.filter((t) => t.kind === 'tour').map((t) => t.index),
+    sides: [1, 2, 3, 4].map((s) => tiles.filter((t) => t.side === s && (t.kind === 'city' || t.kind === 'tour')).map((t) => t.index)),
+    specials: cfg.specials,
+  };
+}
 
+export const BOARDS = Object.fromEntries((Object.keys(BOARD_CFGS) as BoardId[]).map((id) => [id, build(id)])) as Record<BoardId, BoardDef>;
+
+/** 当前对局所用棋盘（state.board 缺省 = 经典棋盘，旧快照 / 旧回放兼容） */
+export const boardOf = (s: { board?: BoardId } | undefined | null): BoardDef => BOARDS[(s && s.board && BOARDS[s.board] ? s.board : BOARD_DEFAULT)];
+
+/** 经典棋盘的便捷导出（向后兼容） */
+export const BOARD: readonly TileDef[] = BOARDS.classic.tiles;
 export const BOARD_SIZE = BOARD.length;
 export const ISLAND_INDEX = 8;
 export const START_INDEX = 0;
-
-export const GROUPS: Record<GroupId, number[]> = Object.fromEntries(
-  (Object.keys(GROUP_PRICE) as GroupId[]).map((g) => [g, BOARD.filter((t) => t.group === g).map((t) => t.index)]),
-) as Record<GroupId, number[]>;
-
-export const TOURS = BOARD.filter((t) => t.kind === 'tour').map((t) => t.index);
-
-/** 每条边上可购买的格子（城市 + 观光地），用于「整排独占」 */
-export const SIDES: number[][] = [1, 2, 3, 4].map((s) =>
-  BOARD.filter((t) => t.side === s && (t.kind === 'city' || t.kind === 'tour')).map((t) => t.index),
-);
-
-export const isOwnable = (i: number) => BOARD[i].kind === 'city' || BOARD[i].kind === 'tour';
+export const GROUPS = BOARDS.classic.groups;
+export const TOURS = BOARDS.classic.tours;
+export const SIDES = BOARDS.classic.sides;
+export const isOwnable = (i: number, d: readonly TileDef[] = BOARD) => d[i].kind === 'city' || d[i].kind === 'tour';

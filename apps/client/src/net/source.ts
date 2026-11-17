@@ -1,6 +1,7 @@
 import { Client, type Room } from '@colyseus/sdk';
 import { clock } from '../core/tween';
 import {
+  type BoardId,
   REPLAY_PLAYER, ROOM_NAME, ReplayPlayer, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type QuickStatus, type GameRecord, type GameState, type LobbySeat, type SeatConfig,
 } from '@dt/shared';
@@ -33,8 +34,8 @@ export class LocalSource implements GameSource {
 
   private recorder: ReplayRecorder;
 
-  constructor(seats: SeatConfig[]) {
-    const cfg = { seed: (Math.random() * 2 ** 32) >>> 0, seats, specials: true, itemsV8: true };
+  constructor(seats: SeatConfig[], board: BoardId = 'classic') {
+    const cfg = { seed: (Math.random() * 2 ** 32) >>> 0, seats, specials: true, itemsV8: true, ...(board !== 'classic' ? { board } : {}) };
     this.state = createGame(cfg);
     this.recorder = new ReplayRecorder(cfg);
   }
@@ -70,9 +71,9 @@ export class LocalSource implements GameSource {
 }
 
 // ───────────────────────── 在线 ─────────────────────────
-export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus }
+export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus; board?: BoardId }
 
-export interface JoinOpts { name: string; charId: CharId; accountId?: string }
+export interface JoinOpts { name: string; charId: CharId; accountId?: string; board?: BoardId }
 
 export class NetSource implements GameSource {
   mySeat = -1;
@@ -123,6 +124,7 @@ export class NetSource implements GameSource {
   onLobby(cb: (m: LobbyMsg) => void) { this.lobbyCb = cb; if (this.lastLobby) cb(this.lastLobby); }
   onError(cb: (m: { message: string }) => void) { this.errCb = cb; }
   start() { this.room.send('start', {}); }
+  setBoard(board: BoardId) { this.room.send('setBoard', { board }); }
   exportReplay() {
     return new Promise<GameRecord>((res, rej) => {
       const t = setTimeout(() => { this.replayCb = null; rej(new Error('导出超时')); }, 8000);

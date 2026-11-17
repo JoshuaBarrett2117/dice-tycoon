@@ -5,7 +5,7 @@
 import {
   Application, Assets, BlurFilter, Container, Graphics, Matrix, Sprite, Text, type Texture,
 } from 'pixi.js';
-import { BOARD, GROUP_COLOR, SPECIAL_TILES, THEMES, THEME_DEFAULT, type ThemeId, type GameState, groupSetOwner, tollOf } from '@dt/shared';
+import { BOARD_SIZE, boardOf, GROUP_COLOR, THEMES, THEME_DEFAULT, type ThemeId, type GameState, groupSetOwner, tollOf } from '@dt/shared';
 import { A, B, BASEH, CW, GEO, OX, OY, P, S, TH, W, ZT, buildingAnchor, tileCorners, tokenAnchor } from './iso';
 import { ease, hexNum, shade, tween } from '../core/tween';
 import { Token } from './Token';
@@ -89,6 +89,7 @@ export class World {
   }
 
   buildBoard(state: GameState) {
+    const BOARD = boardOf(state).tiles;
     this.lastState = state;
     const TH = THEMES[this.theme];
     const g = this.boardG;
@@ -160,12 +161,13 @@ export class World {
 
   /** 重绘一个格子的顶面装饰（色带、城市名、价格/过路费、归属色） */
   drawTileTop(i: number, state: GameState) {
+    const BOARD = boardOf(state).tiles;
     const c = this.tileTops[i];
     c.removeChildren().forEach((x) => x.destroy());
     const d = BOARD[i], geo = GEO[i], t = state.tiles[i];
     if (d.kind === 'corner') return;
     const TH = THEMES[this.theme];
-    const spc = state.specials ? SPECIAL_TILES[i] : undefined;
+    const spc = state.specials ? boardOf(state).specials[i] : undefined;
     const col = spc ? (spc.kind === 'teleport' ? '#06b6d4' : '#e5a800') : GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR];
     const inner = new Container();
     inner.position.set(geo.cu, geo.cv); inner.rotation = geo.th;
@@ -204,6 +206,7 @@ export class World {
   }
 
   setBuilding(i: number, state: GameState, pop: boolean) {
+    const BOARD = boardOf(state).tiles;
     this.buildings[i]?.destroy({ children: true });
     this.buildings[i] = null;
     const t = state.tiles[i], d = BOARD[i];
@@ -300,7 +303,7 @@ export class World {
     if (!r.width || !r.height) return -1;
     const sx = ((clientX - r.left) / r.width) * 1280, sy = ((clientY - r.top) / r.height) * 720;
     const wx = (sx - this.cam.x) / this.cam.s, wy = (sy - this.cam.y) / this.cam.s;
-    for (let i = 0; i < BOARD.length; i++) if (inPoly(wx, wy, tileCorners(i))) return i;
+    for (let i = 0; i < BOARD_SIZE; i++) if (inPoly(wx, wy, tileCorners(i))) return i;
     return -1;
   }
 

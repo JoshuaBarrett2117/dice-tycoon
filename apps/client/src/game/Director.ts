@@ -3,7 +3,7 @@
  * 播完后以权威快照校正画面，再根据状态决定是否等待本地玩家输入。
  */
 import {
-  BOARD, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
+  BOARD_SIZE, boardOf, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
   actorOf, controlOf, investedValue, mortgageValue, redeemCost, tollOf, totalAssets,
   GLOBAL_EVENTS,
   type Action, type GameEvent, type GameRecord, type GameState, type ItemId, type Pending, type WinReason,
@@ -25,6 +25,7 @@ const BANK: [number, number] = [640, 40];
 
 export class Director {
   private vm: GameState | null = null;
+  private get bd() { return boardOf(this.vm).tiles; }
   private queue: SyncMsg[] = [];
   private busy = false;
   private latest: SyncMsg | null = null;
@@ -163,7 +164,7 @@ export class Director {
         mine.map((i) => {
           const m = s.tiles[i].mortgaged;
           return {
-            name: BOARD[i].name, info: `投入 ¥${investedValue(s, i)} 万${m ? ' · 抵押中' : ` · 过路费 ¥${tollOf(s, i)} 万`}`,
+            name: this.bd[i].name, info: `投入 ¥${investedValue(s, i)} 万${m ? ' · 抵押中' : ` · 过路费 ¥${tollOf(s, i)} 万`}`,
             action: m ? `赎回 -¥${redeemCost(s, i)}万` : `抵押 +¥${mortgageValue(s, i)}万`,
             can: m ? s.seats[this.me].cash >= redeemCost(s, i) : true,
             mortgaged: m,
@@ -179,7 +180,7 @@ export class Director {
     const vm = this.vm!;
     this.world.layoutAll(vm.seats.map((p) => p.pos), vm.seats.map((p) => !p.bankrupt), animate);
   }
-  private redrawTiles() { BOARD.forEach((_, i) => this.world.drawTileTop(i, this.vm!)); }
+  private redrawTiles() { this.bd.forEach((_, i) => this.world.drawTileTop(i, this.vm!)); }
   private tokStage(seat: number): [number, number] {
     const t = this.world.tokens[seat];
     return this.world.toStage(t.x, t.y - 60);
@@ -281,7 +282,7 @@ export class Director {
         W.setBuilding(e.tile, vm, true); this.redrawTiles();
         W.puffs(...buildingAnchor(e.tile));
         H.setProps(e.seat, this.propsOf(vm, e.seat));
-        H.floatText(...this.tokStage(e.seat), BOARD[e.tile].kind === 'tour' ? '买下观光地！' : `建成${LV_NAME[e.lv]}！`, '#fff');
+        H.floatText(...this.tokStage(e.seat), this.bd[e.tile].kind === 'tour' ? '买下观光地！' : `建成${LV_NAME[e.lv]}！`, '#fff');
         await sleep(500);
         break;
       }
@@ -292,13 +293,13 @@ export class Director {
         AU.play('build');
         W.setBuilding(e.tile, vm, true); this.redrawTiles();
         W.puffs(...buildingAnchor(e.tile));
-        H.toast(`${BOARD[e.tile].name} 升级为${LV_NAME[e.lv]}`, GRAD.green);
+        H.toast(`${this.bd[e.tile].name} 升级为${LV_NAME[e.lv]}`, GRAD.green);
         await sleep(600);
         break;
       }
       case 'takeover': {
         AU.play('takeover');
-        H.toast(`${vm.seats[e.seat].name} 收购了 ${BOARD[e.tile].name}！`, GRAD.gold);
+        H.toast(`${vm.seats[e.seat].name} 收购了 ${this.bd[e.tile].name}！`, GRAD.gold);
         this.addCash(e.seat, -e.cost);
         await H.coins(H.chipPos(e.seat), H.chipPos(e.from), 6, coinUrl());
         this.addCash(e.from, e.cost);
@@ -312,7 +313,7 @@ export class Director {
         vm.tiles[e.tile] = { owner: null, lv: 0, mortgaged: false };
         this.addCash(e.seat, e.amount);
         W.setBuilding(e.tile, vm, false); this.redrawTiles();
-        H.floatText(...this.tokStage(e.seat), `变卖 ${BOARD[e.tile].name} +¥${e.amount}万`, '#ffd166');
+        H.floatText(...this.tokStage(e.seat), `变卖 ${this.bd[e.tile].name} +¥${e.amount}万`, '#ffd166');
         await sleep(450);
         break;
       case 'bankrupt':
@@ -343,7 +344,7 @@ export class Director {
       case 'festival':
         AU.play('card');
         vm.festivalTile = e.tile; this.redrawTiles();
-        H.toast(`环球节庆：${BOARD[e.tile].name} 过路费 ×2`, GRAD.purple);
+        H.toast(`环球节庆：${this.bd[e.tile].name} 过路费 ×2`, GRAD.purple);
         await sleep(900);
         break;
       case 'airport':
@@ -367,17 +368,17 @@ export class Director {
         await sleep(900);
         break;
       case 'roadblockPlaced':
-        H.toast(`${BOARD[e.tile].name} 放置了路障`, GRAD.purple);
+        H.toast(`${this.bd[e.tile].name} 放置了路障`, GRAD.purple);
         await sleep(700);
         break;
       case 'roadblockHit':
-        H.toast(`${vm.seats[e.seat].name} 被路障拦停在 ${BOARD[e.tile].name}`, GRAD.purple);
+        H.toast(`${vm.seats[e.seat].name} 被路障拦停在 ${this.bd[e.tile].name}`, GRAD.purple);
         await sleep(900);
         break;
       case 'demolish':
         vm.tiles[e.tile].lv = e.lv;
         W.setBuilding(e.tile, vm, e.lv > 0); this.redrawTiles();
-        H.toast(`${BOARD[e.tile].name} 被强拆降为${LV_NAME[e.lv]}`, GRAD.purple);
+        H.toast(`${this.bd[e.tile].name} 被强拆降为${LV_NAME[e.lv]}`, GRAD.purple);
         await sleep(900);
         break;
       case 'globalEvent':
@@ -392,7 +393,7 @@ export class Director {
         break;
       case 'auctionStart':
         AU.play('card');
-        H.toast(`${vm.seats[e.seat].name} 放弃购买 ${BOARD[e.tile].name} → 开始竞拍（起拍 ¥${e.start} 万）`, GRAD.gold);
+        H.toast(`${vm.seats[e.seat].name} 放弃购买 ${this.bd[e.tile].name} → 开始竞拍（起拍 ¥${e.start} 万）`, GRAD.gold);
         await sleep(900);
         break;
       case 'auctionBid':
@@ -412,26 +413,26 @@ export class Director {
         vm.tiles[e.tile] = { owner: e.seat, lv: 0, mortgaged: false };
         W.setBuilding(e.tile, vm, true); this.redrawTiles();
         H.setProps(e.seat, this.propsOf(vm, e.seat));
-        H.toast(`${vm.seats[e.seat].name} 以 ¥${e.amount} 万拍得 ${BOARD[e.tile].name}`, GRAD.gold);
+        H.toast(`${vm.seats[e.seat].name} 以 ¥${e.amount} 万拍得 ${this.bd[e.tile].name}`, GRAD.gold);
         await sleep(500);
         break;
       }
       case 'auctionFail':
-        H.toast(`${BOARD[e.tile].name} 流拍`, GRAD.gray);
+        H.toast(`${this.bd[e.tile].name} 流拍`, GRAD.gray);
         await sleep(600);
         break;
       case 'mortgage':
         AU.play('cash');
         vm.tiles[e.tile].mortgaged = true; this.redrawTiles();
         this.addCash(e.seat, e.amount);
-        H.floatText(...this.tokStage(e.seat), `抵押 ${BOARD[e.tile].name} +¥${e.amount}万`, '#ffd166');
+        H.floatText(...this.tokStage(e.seat), `抵押 ${this.bd[e.tile].name} +¥${e.amount}万`, '#ffd166');
         await sleep(700);
         break;
       case 'redeem':
         AU.play('cash');
         vm.tiles[e.tile].mortgaged = false; this.redrawTiles();
         this.addCash(e.seat, -e.cost);
-        H.floatText(...this.tokStage(e.seat), `赎回 ${BOARD[e.tile].name} -¥${e.cost}万`, '#7cff6b');
+        H.floatText(...this.tokStage(e.seat), `赎回 ${this.bd[e.tile].name} -¥${e.cost}万`, '#7cff6b');
         await sleep(700);
         break;
       case 'prompt':
@@ -483,7 +484,7 @@ export class Director {
     const vm = this.vm!, W = this.world, H = this.hud;
     if (reason === 'toll' && to != null && tile != null) {
       AU.play('ouch');
-      H.toast(`${vm.seats[from].name} 踩到 ${vm.seats[to].name} 的 ${BOARD[tile].name}！`);
+      H.toast(`${vm.seats[from].name} 踩到 ${vm.seats[to].name} 的 ${this.bd[tile].name}！`);
       W.tokens[from].setSad(true);
       await W.tokens[from].shake();
     } else if (reason === 'tax') {
@@ -535,7 +536,7 @@ export class Director {
     if (z == null) return;
     const pos = this.vm!.seats[this.me].pos, zone = ZONES[z];
     for (let n = zone.lo; n <= zone.hi; n++) {
-      const g = this.world.flashTile((pos + n) % BOARD.length, zone.color, 0.55);
+      const g = this.world.flashTile((pos + n) % BOARD_SIZE, zone.color, 0.55);
       this.preview.push(g);
     }
   }
@@ -555,7 +556,7 @@ export class Director {
       if (i < 0) return;
       const k = legal.get(i);
       if (k != null) pick(k);
-      else this.hud.toast(`「${BOARD[i].name}」不能作为目标`);
+      else this.hud.toast(`「${this.bd[i].name}」不能作为目标`);
     };
     canvas.addEventListener('pointerdown', onDown);
     return () => {
@@ -565,14 +566,14 @@ export class Director {
   }
 
   private sheetSpec(s: GameState, p: Pending): SheetSpec {
-    const i = p.tile ?? 0, d = BOARD[i];
+    const i = p.tile ?? 0, d = this.bd[i];
     const col = GROUP_COLOR[(d.group ?? d.kind) as keyof typeof GROUP_COLOR] ?? '#3b82f6';
     const label = (k: number) => p.options[k].label;
     const lvImg = (lv: number) => (lv > 0 ? bldUrl(lv) : undefined);
     switch (p.kind) {
       case 'buy': {
         if (d.kind === 'tour') {
-          const n = s.tiles.filter((t, x) => t.owner === this.me && BOARD[x].kind === 'tour').length;
+          const n = s.tiles.filter((t, x) => t.owner === this.me && this.bd[x].kind === 'tour').length;
           return { title: d.name, color: col, kind: '观光地 · 集齐 4 处即「观光地独占」胜利', rows: [['地价', `¥${d.price} 万`], ['已拥有观光地', `${n} / 4`]], pending: p, optionLabel: label };
         }
         const g = GROUPS[d.group!], own = g.filter((x) => s.tiles[x].owner === this.me).length;
@@ -595,13 +596,13 @@ export class Director {
         };
       }
       case 'festival':
-        return { title: '环球节庆', color: '#ec4899', kind: '选择一座自己的城市，过路费 ×2', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
+        return { title: '环球节庆', color: '#ec4899', kind: '选择一座自己的城市，过路费 ×2', rows: [], pending: p, optionLabel: (k) => this.bd[p.options[k].value].name, grid: true };
       case 'item':
         return {
           title: ITEMS[p.item!].name, color: '#0ea5e9',
           kind: p.item === 'dice' || p.item === 'swap' || p.item === 'freeze' ? ITEMS[p.item!].desc : `${ITEMS[p.item!].desc} · 可直接点击棋盘上发亮的目标格`,
           rows: [], pending: p, grid: true,
-          optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : p.item === 'swap' || p.item === 'freeze' ? p.options[k].label : BOARD[p.options[k].value].name),
+          optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : p.item === 'swap' || p.item === 'freeze' ? p.options[k].label : this.bd[p.options[k].value].name),
           onMount: p.item === 'dice' || p.item === 'swap' || p.item === 'freeze' ? undefined : (pick) => this.mountBoardPick(p, pick),
         };
       case 'auction': {
@@ -614,7 +615,7 @@ export class Director {
         };
       }
       case 'fly':
-        return { title: '环球航班', color: '#16a34a', kind: '选择目的地（经过起点可领月薪）', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
+        return { title: '环球航班', color: '#16a34a', kind: '选择目的地（经过起点可领月薪）', rows: [], pending: p, optionLabel: (k) => this.bd[p.options[k].value].name, grid: true };
     }
   }
 
