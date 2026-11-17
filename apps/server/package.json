@@ -1,6 +1,6 @@
 {
   "name": "@dt/server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "对战服：Colyseus 房间，服务端权威，复用 @dt/shared 规则引擎",
   "type": "module",
   "scripts": {

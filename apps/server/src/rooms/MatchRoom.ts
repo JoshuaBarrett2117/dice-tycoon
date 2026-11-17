@@ -1,7 +1,7 @@
 import { Room, type Client } from '@colyseus/core';
 import {
   CHARACTERS, CHAR_IDS, TURN_TIMEOUT_MS,
-  ReplayRecorder, animBudget, applyAction, botAction, createGame, openingEvents,
+  ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat,
 } from '@dt/shared';
 
@@ -144,13 +144,14 @@ export class MatchRoom extends Room {
       if (g?.phase === 'ended') this.clock.setTimeout(() => this.disconnect(), 60_000);
       return;
     }
-    const seat = g.turn;
+    const seat = actorOf(g); // 竞拍时是当前出价人
     const auto = this.seats[seat].isBot || !this.seats[seat].connected;
     const wait = auto ? animMs + 500 + Math.random() * 500 : Math.max(0, (this.deadline ?? Date.now()) - Date.now());
     const seq = g.seq;
     this.timer = this.clock.setTimeout(() => {
       if (!this.game || this.game.seq !== seq) return;
-      this.apply(this.game.turn, botAction(this.game, this.game.turn));
+      const who = actorOf(this.game);
+      this.apply(who, botAction(this.game, who));
     }, wait);
   }
 

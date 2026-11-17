@@ -91,6 +91,20 @@ button { font-family: inherit; }
 #acts.off .act { cursor: default; }
 #acts .act:not(.cd):active { transform: translateY(3px); }
 
+#props { position: absolute; inset: 0; z-index: 35; display: none; align-items: center; justify-content: center; background: rgba(10,20,50,.45); }
+#props.show { display: flex; }
+#props .pn { width: 460px; max-height: 560px; border-radius: 22px; background: linear-gradient(#fff, #eef3ff); border: 4px solid #3a4670; color: #26325a; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+#props .ph { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 900; }
+#props .x { width: 30px; height: 30px; border-radius: 10px; border: 2px solid #3a4670; background: #fff; cursor: pointer; font-weight: 900; }
+#props .pl { overflow: auto; display: flex; flex-direction: column; gap: 6px; max-height: 400px; }
+#props .pr { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 12px; background: #fff; border: 2px solid #c9d6ff; font-size: 13px; font-weight: 700; }
+#props .pr.mg { background: #e2e8f0; }
+#props .pr b { width: 78px; font-size: 14px; } #props .pr span { flex: 1; color: #6b7699; font-size: 12px; }
+#props .pr button { height: 32px; padding: 0 10px; border-radius: 10px; border: 2px solid #fff; background: linear-gradient(#5aa8ff, #2a6fe0); color: #fff; font-weight: 900; cursor: pointer; font-size: 12px; }
+#props .pr.mg button { background: linear-gradient(#34d399, #059669); }
+#props .pr button:disabled { filter: grayscale(1); opacity: .6; cursor: default; }
+#props .pf { font-size: 11px; color: #6b7699; font-weight: 700; }
+
 /* 选择面板 */
 #sheet { position: absolute; right: -420px; top: 110px; width: 372px; min-height: 420px; z-index: 30; border-radius: 26px; background: linear-gradient(#fff, #eef3ff); border: 4px solid #3a4670; box-shadow: inset 0 0 0 3px #c9d6ff, 0 10px 30px rgba(0,0,0,.4); color: #26325a; transition: right .42s cubic-bezier(.2,1.25,.4,1); padding: 40px 22px 92px; }
 #sheet.show { right: 24px; }

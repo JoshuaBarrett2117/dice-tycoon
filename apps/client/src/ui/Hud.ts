@@ -60,6 +60,7 @@ export class Hud {
         <div id="toast" class="st3"></div>
         <div id="gbanner"></div>
         <div id="acts"></div>
+        <div id="props"></div>
         <div id="chips"></div>
         <div id="sheet"><div class="rib st2"></div><div class="kind"></div><div class="bimg"><img alt=""></div><div class="info"></div><div class="opts"></div><div class="tbar"><i></i></div><button class="bt no">放 弃</button></div>
         <div id="fx"></div>
@@ -159,6 +160,27 @@ export class Hud {
     if (spec.skill) mk('skill', `<b>${esc(spec.skill.name)}</b><small>${spec.skill.cd > 0 ? `冷却 ${spec.skill.cd} 回合` : '可用'}</small>`, spec.skill.desc, spec.onSkill, spec.skill.cd > 0);
     spec.extras.forEach((x) => mk('extra', `<b>${esc(x.label)}</b>`, x.title, x.on));
   }
+
+  /** 我的地产面板：抵押 / 赎回入口 */
+  showProps(rows: { name: string; info: string; action: string; can: boolean; mortgaged: boolean; go: () => void }[]) {
+    const box = $(this.stage, '#props');
+    const close = () => { box.classList.remove('show'); box.innerHTML = ''; };
+    box.innerHTML = `<div class="pn"><div class="ph">我的地产 · 抵押 / 赎回<button class="x">✕</button></div><div class="pl"></div><div class="pf">抵押得款 = 投入 ×50%；赎回价 = 得款 ×110%；抵押中的地产不收过路费、不可升级，也不计入独占胜利</div></div>`;
+    const list = $(box, '.pl');
+    rows.forEach((r) => {
+      const d = document.createElement('div');
+      d.className = 'pr' + (r.mortgaged ? ' mg' : '');
+      d.innerHTML = `<b>${esc(r.name)}</b><span>${esc(r.info)}</span>`;
+      const b = document.createElement('button');
+      b.textContent = r.action; b.disabled = !r.can;
+      b.onclick = (e) => { e.stopPropagation(); close(); r.go(); };
+      d.appendChild(b);
+      list.appendChild(d);
+    });
+    $(box, '.x').onclick = (e) => { e.stopPropagation(); close(); };
+    box.classList.add('show');
+  }
+  closeProps() { const b = $(this.stage, '#props'); b.classList.remove('show'); b.innerHTML = ''; }
 
   // ───────────────────────── 提示 ─────────────────────────
   toast(text: string, bg: string = GRAD.red) {

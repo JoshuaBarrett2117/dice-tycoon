@@ -10,10 +10,12 @@ import { CHARACTERS } from './characters';
 import { GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
-  Action, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, WinReason,
+  Action, AuctionState, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, TileState, WinReason,
 } from './types';
 
 interface Ctx { s: GameState; ev: GameEvent[] }
+
+const emptyTile = (): TileState => ({ owner: null, lv: 0, mortgaged: false });
 
 const LV_NAME = ['空地', '别墅', '公寓', '酒店', '地标'];
 
@@ -27,7 +29,7 @@ export function createGame(cfg: GameConfig): GameState {
   }));
   const g: GameState = {
     version: 2, seed: cfg.seed >>> 0, rng: cfg.seed >>> 0, seq: 0, seats,
-    tiles: BOARD.map(() => ({ owner: null, lv: 0 })),
+    tiles: BOARD.map(() => (emptyTile())),
     turn: 0, round: 1, maxRounds: cfg.maxRounds ?? RULES.maxRounds,
     phase: 'roll', pending: null, festivalTile: null, globalEvent: null, roadblocks: [], winner: null, winReason: null,
   };
@@ -58,7 +60,8 @@ export function groupSetOwner(s: GameState, i: number): number | null {
   if (d.kind !== 'city' || !d.group) return null;
   const o = s.tiles[i].owner;
   if (o == null) return null;
-  return GROUPS[d.group].every((x) => s.tiles[x].owner === o) ? o : null;
+  // 抵押中的地产不计入色组集齐
+  return GROUPS[d.group].every((x) => s.tiles[x].owner === o && !s.tiles[x].mortgaged) ? o : null;
 }
 
 /** 从 from 级建到 to 级的建设费：先角色折扣，再全局事件（建设补贴），最后取整 */
@@ -77,11 +80,11 @@ export function buildCost(s: GameState, seat: number, i: number, from: number, t
  */
 export function tollOf(s: GameState, i: number): number {
   const d = BOARD[i], t = s.tiles[i];
-  if (t.owner == null) return 0;
+  if (t.owner == null || t.mortgaged) return 0; // 抵押中不收过路费
   const op = s.seats[t.owner], g = globalMods(s);
   const owner = (1 + CHARACTERS[op.charId].tollBonus) * (op.doubleToll ? RULES.doubleTollMult : 1) * (op.wangToll ? RULES.wangSkillToll : 1);
   if (d.kind === 'tour') {
-    const n = TOURS.filter((x) => s.tiles[x].owner === t.owner).length;
+    const n = TOURS.filter((x) => s.tiles[x].owner === t.owner && !s.tiles[x].mortgaged).length;
     return Math.round(RULES.tourTollBase * 2 ** (n - 1) * owner * g.toll * g.tourToll);
   }
   const fest = s.festivalTile === i ? RULES.festivalMult : 1;
@@ -95,10 +98,25 @@ export function takeoverCost(s: GameState, seat: number, i: number): number {
   return Math.round(investedValue(s, i) * RULES.takeoverMult * (1 - disc) * li);
 }
 
+/** 总资产 = 现金 + 地产投入；抵押中的地产已把得款计入现金，故只计「投入 − 赎回价」的净值，避免重复计算 */
 export function totalAssets(s: GameState, seat: number): number {
   let v = s.seats[seat].cash;
-  s.tiles.forEach((t, i) => { if (t.owner === seat) v += investedValue(s, i); });
+  s.tiles.forEach((t, i) => { if (t.owner === seat) v += t.mortgaged ? investedValue(s, i) - redeemCost(s, i) : investedValue(s, i); });
   return v;
+}
+
+/** 抵押得款 = 已投入总价 × mortgageRatio（与变卖 sellRatio 同口径） */
+export function mortgageValue(s: GameState, i: number): number {
+  return Math.round(investedValue(s, i) * RULES.mortgageRatio);
+}
+/** 赎回价 = 抵押得款 × redeemMult */
+export function redeemCost(s: GameState, i: number): number {
+  return Math.round(mortgageValue(s, i) * RULES.redeemMult);
+}
+
+/** 当前需要行动的座位：待选择阶段是 pending 的当事人（竞拍时是出价人），否则是回合玩家 */
+export function actorOf(s: GameState): number {
+  return s.phase === 'choose' && s.pending ? s.pending.seat : s.turn;
 }
 
 /** 本玩家实际控骰命中率 */
@@ -109,7 +127,7 @@ export function controlOf(p: PlayerState): number {
 // ───────────────────────── 入口 ─────────────────────────
 export function applyAction(state: GameState, seat: number, action: Action): ApplyResult {
   if (state.phase === 'ended') return { ok: false, error: '对局已结束' };
-  if (seat !== state.turn) return { ok: false, error: '还没轮到你' };
+  if (seat !== actorOf(state)) return { ok: false, error: '还没轮到你' };
   const ctx: Ctx = { s: structuredClone(state), ev: [] };
   const s = ctx.s;
   if (action.type === 'roll') {
@@ -126,6 +144,9 @@ export function applyAction(state: GameState, seat: number, action: Action): App
     if (err) return { ok: false, error: err };
   } else if (action.type === 'useSkill') {
     const err = useSkill(ctx, seat);
+    if (err) return { ok: false, error: err };
+  } else if (action.type === 'mortgage' || action.type === 'redeem') {
+    const err = mortgageAction(ctx, seat, action.type, action.tile);
     if (err) return { ok: false, error: err };
   } else {
     return { ok: false, error: '未知操作' };
@@ -274,7 +295,8 @@ function resolveTile(ctx: Ctx, seat: number): Resolve {
         const opts = upgradeOptions(s, seat, i);
         return opts.length ? { pending: { kind: 'upgrade', seat, tile: i, options: opts } } : {};
       }
-      // 别人的地：付过路费 → 可收购
+      // 别人的地：抵押中不收费也不可收购；否则付过路费 → 可收购
+      if (t.mortgaged) return {};
       const owner = t.owner;
       if (p.shield) {
         p.shield = false;
@@ -301,7 +323,8 @@ function sendIslandInPlace(ctx: Ctx, seat: number) {
 }
 
 function ownCities(s: GameState, seat: number) {
-  return s.tiles.map((t, i) => (t.owner === seat && BOARD[i].kind === 'city' ? i : -1)).filter((i) => i >= 0);
+  // 抵押中的城市不能作为节庆 / 升级等目标
+  return s.tiles.map((t, i) => (t.owner === seat && !t.mortgaged && BOARD[i].kind === 'city' ? i : -1)).filter((i) => i >= 0);
 }
 
 export function buyOptions(s: GameState, seat: number, i: number): PendingOption[] {
@@ -317,7 +340,7 @@ export function buyOptions(s: GameState, seat: number, i: number): PendingOption
 
 export function upgradeOptions(s: GameState, seat: number, i: number): PendingOption[] {
   const d = BOARD[i], t = s.tiles[i], cash = s.seats[seat].cash;
-  if (d.kind !== 'city' || t.lv >= 4) return [];
+  if (d.kind !== 'city' || t.lv >= 4 || t.mortgaged) return [];
   const targets = t.lv < 3 ? [1, 2, 3].filter((l) => l > t.lv) : [4];
   return targets
     .map((lv) => ({ value: lv, cost: buildCost(s, seat, i, t.lv, lv), label: `升级为${LV_NAME[lv]}` }))
@@ -402,12 +425,13 @@ function pay(ctx: Ctx, from: number, to: number | null, amount: number, tile: nu
 /** 现金不足时按投入从低到高变卖地产，直到够付 */
 function liquidate(ctx: Ctx, seat: number, need: number) {
   const s = ctx.s, p = s.seats[seat];
-  const mine = s.tiles.map((t, i) => (t.owner === seat ? i : -1)).filter((i) => i >= 0)
+  // 抵押地产的清算价值 = 变卖价 − 已得抵押款 = 0：优先级最低、不提供现金，只在破产时随全部地产收归银行
+  const mine = s.tiles.map((t, i) => (t.owner === seat && !t.mortgaged ? i : -1)).filter((i) => i >= 0)
     .sort((a, b) => investedValue(s, a) - investedValue(s, b));
   for (const i of mine) {
     if (p.cash >= need) break;
     const amount = Math.round(investedValue(s, i) * RULES.sellRatio);
-    s.tiles[i] = { owner: null, lv: 0 };
+    s.tiles[i] = emptyTile();
     if (s.festivalTile === i) s.festivalTile = null;
     p.cash += amount;
     ctx.ev.push({ t: 'sell', seat, tile: i, amount });
@@ -418,7 +442,7 @@ function goBankrupt(ctx: Ctx, seat: number) {
   const s = ctx.s, p = s.seats[seat];
   p.bankrupt = true; p.cash = 0; p.items = [];
   s.roadblocks = s.roadblocks.filter((r) => r.owner !== seat);
-  s.tiles.forEach((t, i) => { if (t.owner === seat) { s.tiles[i] = { owner: null, lv: 0 }; if (s.festivalTile === i) s.festivalTile = null; } });
+  s.tiles.forEach((t, i) => { if (t.owner === seat) { s.tiles[i] = emptyTile(); if (s.festivalTile === i) s.festivalTile = null; } });
   ctx.ev.push({ t: 'bankrupt', seat });
 }
 
@@ -439,7 +463,7 @@ export function itemTargets(s: GameState, seat: number, item: ItemId): number[] 
       return out;
     }
     case 'demolish':
-      return s.tiles.map((t, i) => (t.owner != null && t.owner !== seat && !s.seats[t.owner].bankrupt && BOARD[i].kind === 'city' && t.lv >= 1 && t.lv <= 3 ? i : -1)).filter((i) => i >= 0);
+      return s.tiles.map((t, i) => (t.owner != null && t.owner !== seat && !s.seats[t.owner].bankrupt && BOARD[i].kind === 'city' && !t.mortgaged && t.lv >= 1 && t.lv <= 3 ? i : -1)).filter((i) => i >= 0);
     case 'freeBuild': return upgradableCities(s, seat);
     case 'teleport': return BOARD.filter((d) => d.index !== p.pos && !(d.kind === 'corner' && d.corner === 'island')).map((d) => d.index);
     default: return [];
@@ -556,8 +580,11 @@ function doChoose(ctx: Ctx, seat: number, idx: number) {
     if (err) throw new Error(err);
     return;
   }
+  if (pend.kind === 'auction') { doAuctionChoice(ctx, seat, pend, idx); return; }
   if (idx === -1) {
     ctx.ev.push({ t: 'decline', seat, kind: pend.kind });
+    // 放弃购买无主地块 → 进入竞拍（其余玩家有机会拍下），而不是直接流空
+    if (pend.kind === 'buy' && startAuction(ctx, seat, pend.tile!, again)) return;
     // 放弃起飞 = 正常掷骰
     if (pend.kind === 'fly') { s.phase = 'roll'; return; }
     finish(ctx, seat, again);
@@ -569,7 +596,7 @@ function doChoose(ctx: Ctx, seat: number, idx: number) {
     case 'buy': {
       if (o.cost > p.cash) break;
       p.cash -= o.cost;
-      s.tiles[i] = { owner: seat, lv: o.value };
+      s.tiles[i] = { owner: seat, lv: o.value, mortgaged: false };
       ctx.ev.push({ t: 'buy', seat, tile: i, lv: o.value, cost: o.cost });
       break;
     }
@@ -688,7 +715,7 @@ function checkWin(ctx: Ctx): boolean {
 }
 
 export function monopolyOf(s: GameState, seat: number): WinReason | null {
-  const owns = (i: number) => s.tiles[i].owner === seat;
+  const owns = (i: number) => s.tiles[i].owner === seat && !s.tiles[i].mortgaged; // 抵押中的地产不计入独占
   if (TOURS.every(owns)) return 'tour';
   if (SIDES.some((side) => side.every(owns))) return 'line';
   const groups = Object.values(GROUPS).filter((g) => g.every(owns)).length;
@@ -710,6 +737,95 @@ function end(ctx: Ctx, winner: number, reason: WinReason) {
   ctx.ev.push({ t: 'end', winner, reason });
 }
 
+// ───────────────────────── 竞拍 ─────────────────────────
+function auctionMinBid(au: AuctionState): number {
+  return au.highSeat == null ? au.start : au.high + RULES.auctionMinRaise;
+}
+
+/** 放弃购买后开启竞拍；没有可参与的对手时返回 false（地块照旧流空） */
+function startAuction(ctx: Ctx, starter: number, tile: number, again: boolean): boolean {
+  const s = ctx.s, n = s.seats.length, order: number[] = [];
+  for (let k = 1; k < n; k++) { const q = (starter + k) % n; if (!s.seats[q].bankrupt) order.push(q); }
+  if (!order.length) return false;
+  const au: AuctionState = {
+    tile, starter, start: Math.round(BOARD[tile].price * RULES.auctionStartRatio),
+    high: 0, highSeat: null, order, out: [],
+  };
+  ctx.ev.push({ t: 'auctionStart', seat: starter, tile, start: au.start });
+  auctionStep(ctx, au, -1, again);
+  return true;
+}
+
+/** 轮到下一位出价人；全员弃拍 → 流拍，轮回到最高价者 → 成交。出价需要的现金不足者自动弃拍 */
+function auctionStep(ctx: Ctx, au: AuctionState, from: number, again: boolean) {
+  const s = ctx.s, n = au.order.length;
+  let idx = from < 0 ? -1 : au.order.indexOf(from);
+  for (let guard = 0; guard <= n * 2; guard++) {
+    let cand = -1;
+    for (let j = 1; j <= n; j++) {
+      const c = au.order[(idx + j + n) % n];
+      if (!au.out.includes(c)) { cand = c; idx = au.order.indexOf(c); break; }
+    }
+    if (cand < 0) break; // 无人可出价
+    if (au.highSeat === cand) { auctionEnd(ctx, au, again); return; } // 其余人都已表态，最高价者得
+    const min = auctionMinBid(au), cash = s.seats[cand].cash;
+    if (cash < min) { au.out.push(cand); ctx.ev.push({ t: 'auctionPass', seat: cand, tile: au.tile }); continue; }
+    const values = [...new Set(RULES.auctionBidSteps.map((x) => min + x))].filter((v) => v <= cash);
+    const options = values.map((v) => ({ value: v, cost: v, label: `出价 ¥${v} 万` }));
+    setPending(ctx, { kind: 'auction', seat: cand, tile: au.tile, options, again, auction: au });
+    return;
+  }
+  auctionEnd(ctx, au, again);
+}
+
+function auctionEnd(ctx: Ctx, au: AuctionState, again: boolean) {
+  const s = ctx.s;
+  s.pending = null;
+  if (au.highSeat != null) {
+    s.seats[au.highSeat].cash -= au.high;
+    s.tiles[au.tile] = { owner: au.highSeat, lv: 0, mortgaged: false };
+    ctx.ev.push({ t: 'auctionWin', seat: au.highSeat, tile: au.tile, amount: au.high });
+  } else {
+    ctx.ev.push({ t: 'auctionFail', tile: au.tile });
+  }
+  finish(ctx, au.starter, again);
+}
+
+function doAuctionChoice(ctx: Ctx, seat: number, pend: Pending, idx: number) {
+  const au = structuredClone(pend.auction!);
+  if (idx === -1) {
+    au.out.push(seat);
+    ctx.ev.push({ t: 'auctionPass', seat, tile: au.tile });
+  } else {
+    const amount = pend.options[idx].value;
+    au.high = amount; au.highSeat = seat;
+    ctx.ev.push({ t: 'auctionBid', seat, tile: au.tile, amount });
+  }
+  auctionStep(ctx, au, seat, pend.again);
+}
+
+// ───────────────────────── 抵押与赎回 ─────────────────────────
+function mortgageAction(ctx: Ctx, seat: number, kind: 'mortgage' | 'redeem', tile: number): string | null {
+  const s = ctx.s, p = s.seats[seat];
+  if (s.phase !== 'roll') return '当前不能抵押 / 赎回';
+  if (!Number.isInteger(tile) || tile < 0 || tile >= BOARD_SIZE || !isOwnable(tile)) return '无效的地产';
+  const t = s.tiles[tile];
+  if (t.owner !== seat) return '这不是你的地产';
+  if (kind === 'mortgage') {
+    if (t.mortgaged) return '该地产已在抵押中';
+    const amount = mortgageValue(s, tile);
+    p.cash += amount; t.mortgaged = true;
+    ctx.ev.push({ t: 'mortgage', seat, tile, amount });
+  } else {
+    if (!t.mortgaged) return '该地产没有被抵押';
+    const cost = redeemCost(s, tile);
+    if (p.cash < cost) return `现金不足，赎回需要 ¥${cost} 万`;
+    p.cash -= cost; t.mortgaged = false;
+    ctx.ev.push({ t: 'redeem', seat, tile, cost });
+  }
+  return null;
+}
+
 export { isOwnable };
 
 /**
@@ -723,6 +839,7 @@ export function migrateState(raw: unknown): GameState {
   s.version = 2;
   s.globalEvent ??= null;
   s.roadblocks ??= [];
+  for (const t of s.tiles) t.mortgaged ??= false;
   for (const p of s.seats) {
     p.items ??= []; p.skillCd ??= 0; p.doubleToll ??= false; p.wangToll ??= false; p.liDiscount ??= false;
     p.xingPerfect ??= false; p.forcedSum ??= null; p.doubleSalary ??= false;

@@ -1,6 +1,6 @@
 import { Client, type Room } from '@colyseus/sdk';
 import {
-  ROOM_NAME, ReplayRecorder, animBudget, applyAction, botAction, createGame, openingEvents,
+  ROOM_NAME, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameRecord, type GameState, type LobbySeat, type SeatConfig,
 } from '@dt/shared';
 
@@ -38,7 +38,7 @@ export class LocalSource implements GameSource {
     this.emit(openingEvents(this.state));
   }
 
-  send(a: Action) { this.apply(this.state.turn === this.mySeat ? this.mySeat : -1, a); }
+  send(a: Action) { this.apply(actorOf(this.state) === this.mySeat ? this.mySeat : -1, a); }
 
   private apply(seat: number, a: Action) {
     const r = applyAction(this.state, seat, a);
@@ -52,8 +52,9 @@ export class LocalSource implements GameSource {
     this.cb?.({ state: this.state, events, deadline: null });
     clearTimeout(this.timer);
     const s = this.state;
-    if (s.phase !== 'ended' && s.seats[s.turn].isBot) {
-      this.timer = window.setTimeout(() => this.apply(s.turn, botAction(this.state, s.turn)), animBudget(events) + 600);
+    const who = actorOf(s); // 竞拍时是当前出价人
+    if (s.phase !== 'ended' && s.seats[who].isBot) {
+      this.timer = window.setTimeout(() => this.apply(who, botAction(this.state, who)), animBudget(events) + 600);
     }
   }
 

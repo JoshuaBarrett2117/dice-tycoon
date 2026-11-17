@@ -47,7 +47,7 @@ function showMenu(msg = '') {
   const m = overlay('menu');
   m.innerHTML = `
     <div class="logo st3">掷富天下</div>
-    <div class="tag">网页大富翁 · v0.1 开发版</div>
+    <div class="tag">网页大富翁 · v0.2 开发版</div>
     <div class="form">
       <label>昵称 <input id="nm" maxlength="12" value="${prefs.name}"></label>
       <div class="chars">${CHAR_IDS.map((c) => `

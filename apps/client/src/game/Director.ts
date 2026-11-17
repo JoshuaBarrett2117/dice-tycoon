@@ -4,7 +4,7 @@
  */
 import {
   BOARD, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
-  controlOf, tollOf, totalAssets,
+  actorOf, controlOf, investedValue, mortgageValue, redeemCost, tollOf, totalAssets,
   GLOBAL_EVENTS,
   type Action, type GameEvent, type GameState, type ItemId, type Pending, type WinReason,
 } from '@dt/shared';
@@ -32,6 +32,7 @@ export class Director {
   constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void) {
     src.onSync((m) => {
       this.hud.cancelInput();
+      this.hud.closeProps();
       this.queue.push(m);
       void this.pump();
     });
@@ -115,8 +116,24 @@ export class Director {
   }
 
   /** 行动栏的额外按钮（抵押 / 赎回入口等），由后续阶段补充 */
-  private extraActs(_s: GameState, _press: (a: Action) => void): { label: string; title: string; on: () => void }[] {
-    return [];
+  private extraActs(s: GameState, press: (a: Action) => void): { label: string; title: string; on: () => void }[] {
+    const mine = s.tiles.map((t, i) => (t.owner === this.me ? i : -1)).filter((i) => i >= 0);
+    if (!mine.length) return [];
+    return [{
+      label: `地产 ${mine.length}`, title: '查看自己的地产，抵押换现金 / 赎回',
+      on: () => this.hud.showProps(
+        mine.map((i) => {
+          const m = s.tiles[i].mortgaged;
+          return {
+            name: BOARD[i].name, info: `投入 ¥${investedValue(s, i)} 万${m ? ' · 抵押中' : ` · 过路费 ¥${tollOf(s, i)} 万`}`,
+            action: m ? `赎回 -¥${redeemCost(s, i)}万` : `抵押 +¥${mortgageValue(s, i)}万`,
+            can: m ? s.seats[this.me].cash >= redeemCost(s, i) : true,
+            mortgaged: m,
+            go: () => press({ type: m ? 'redeem' : 'mortgage', tile: i }),
+          };
+        }),
+      ),
+    }];
   }
 
   private propsOf(s: GameState, seat: number) { return s.tiles.filter((t) => t.owner === seat).length; }
@@ -201,7 +218,7 @@ export class Director {
         AU.play('cash');
         this.addCash(e.seat, -e.cost);
         await H.coins(H.chipPos(e.seat), this.bldStage(e.tile), 4, coinUrl());
-        vm.tiles[e.tile] = { owner: e.seat, lv: e.lv };
+        vm.tiles[e.tile] = { owner: e.seat, lv: e.lv, mortgaged: false };
         AU.play('build');
         W.setBuilding(e.tile, vm, true); this.redrawTiles();
         W.puffs(...buildingAnchor(e.tile));
@@ -234,7 +251,7 @@ export class Director {
         break;
       }
       case 'sell':
-        vm.tiles[e.tile] = { owner: null, lv: 0 };
+        vm.tiles[e.tile] = { owner: null, lv: 0, mortgaged: false };
         this.addCash(e.seat, e.amount);
         W.setBuilding(e.tile, vm, false); this.redrawTiles();
         H.floatText(...this.tokStage(e.seat), `变卖 ${BOARD[e.tile].name} +¥${e.amount}万`, '#ffd166');
@@ -243,7 +260,7 @@ export class Director {
       case 'bankrupt':
         AU.play('ouch');
         vm.seats[e.seat].bankrupt = true;
-        vm.tiles.forEach((t, i) => { if (t.owner === e.seat) { vm.tiles[i] = { owner: null, lv: 0 }; W.setBuilding(i, vm, false); } });
+        vm.tiles.forEach((t, i) => { if (t.owner === e.seat) { vm.tiles[i] = { owner: null, lv: 0, mortgaged: false }; W.setBuilding(i, vm, false); } });
         this.redrawTiles();
         H.setBankrupt(e.seat);
         H.toast(`${vm.seats[e.seat].name} 破产出局`, GRAD.gray);
@@ -310,8 +327,52 @@ export class Director {
           await sleep(900);
         }
         break;
+      case 'auctionStart':
+        AU.play('card');
+        H.toast(`${vm.seats[e.seat].name} 放弃购买 ${BOARD[e.tile].name} → 开始竞拍（起拍 ¥${e.start} 万）`, GRAD.gold);
+        await sleep(900);
+        break;
+      case 'auctionBid':
+        AU.play('cash');
+        H.toast(`${vm.seats[e.seat].name} 出价 ¥${e.amount} 万`, GRAD.blue);
+        H.chipText(e.seat, `出价 ¥${e.amount} 万`);
+        await sleep(700);
+        break;
+      case 'auctionPass':
+        H.toast(`${vm.seats[e.seat].name} 弃拍`, GRAD.gray);
+        await sleep(450);
+        break;
+      case 'auctionWin': {
+        AU.play('takeover');
+        this.addCash(e.seat, -e.amount);
+        await H.coins(H.chipPos(e.seat), this.bldStage(e.tile), 4, coinUrl());
+        vm.tiles[e.tile] = { owner: e.seat, lv: 0, mortgaged: false };
+        W.setBuilding(e.tile, vm, true); this.redrawTiles();
+        H.setProps(e.seat, this.propsOf(vm, e.seat));
+        H.toast(`${vm.seats[e.seat].name} 以 ¥${e.amount} 万拍得 ${BOARD[e.tile].name}`, GRAD.gold);
+        await sleep(500);
+        break;
+      }
+      case 'auctionFail':
+        H.toast(`${BOARD[e.tile].name} 流拍`, GRAD.gray);
+        await sleep(600);
+        break;
+      case 'mortgage':
+        AU.play('cash');
+        vm.tiles[e.tile].mortgaged = true; this.redrawTiles();
+        this.addCash(e.seat, e.amount);
+        H.floatText(...this.tokStage(e.seat), `抵押 ${BOARD[e.tile].name} +¥${e.amount}万`, '#ffd166');
+        await sleep(700);
+        break;
+      case 'redeem':
+        AU.play('cash');
+        vm.tiles[e.tile].mortgaged = false; this.redrawTiles();
+        this.addCash(e.seat, -e.cost);
+        H.floatText(...this.tokStage(e.seat), `赎回 ${BOARD[e.tile].name} -¥${e.cost}万`, '#7cff6b');
+        await sleep(700);
+        break;
       case 'prompt':
-        if (e.pending.seat !== this.me) { H.chipText(e.pending.seat, '思考中…'); }
+        if (e.pending.seat !== this.me) { H.chipText(e.pending.seat, e.pending.kind === 'auction' ? '竞拍出价中…' : '思考中…'); }
         break;
       case 'decline':
         break;
@@ -387,7 +448,7 @@ export class Director {
   // ───────────────────────── 本地玩家输入 ─────────────────────────
   private async input(m: SyncMsg) {
     const s = m.state;
-    if (s.phase === 'ended' || s.turn !== this.me) return;
+    if (s.phase === 'ended' || actorOf(s) !== this.me) return;
     const seq = s.seq;
     if (s.phase === 'roll') {
       this.acts(s, true);
@@ -453,6 +514,15 @@ export class Director {
           title: ITEMS[p.item!].name, color: '#0ea5e9', kind: ITEMS[p.item!].desc, rows: [], pending: p, grid: true,
           optionLabel: (k) => (p.item === 'dice' ? `${p.options[k].value} 点` : BOARD[p.options[k].value].name),
         };
+      case 'auction': {
+        const au = p.auction!;
+        const holder = au.highSeat != null ? `${s.seats[au.highSeat].name} ¥${au.high} 万` : '暂无';
+        return {
+          title: `竞拍 ${d.name}`, color: '#f59e0b', kind: `${s.seats[au.starter].name} 放弃购买 · 价高者以空地成交`,
+          rows: [['地价', `¥${d.price} 万`], ['起拍价', `¥${au.start} 万`], ['当前最高价', holder], ['现金', `¥${s.seats[this.me].cash} 万`]],
+          pending: p, optionLabel: label,
+        };
+      }
       case 'fly':
         return { title: '环球航班', color: '#16a34a', kind: '选择目的地（经过起点可领月薪）', rows: [], pending: p, optionLabel: (k) => BOARD[p.options[k].value].name, grid: true };
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  ReplayRecorder, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, replayGame, takeoverCost, tollOf,
+  ReplayRecorder, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type GameState, type SeatConfig,
 } from '../src';
 
@@ -23,7 +23,7 @@ function playOut(seed: number, maxSteps = 5000) {
   let s = createGame({ seed, seats: SEATS.map((x) => ({ ...x, isBot: true })) });
   let steps = 0;
   while (s.phase !== 'ended' && steps < maxSteps) {
-    s = ok(s, s.turn, botAction(s, s.turn)).state;
+    s = ok(s, actorOf(s), botAction(s, actorOf(s))).state;
     steps++;
   }
   return { s, steps };
@@ -73,7 +73,7 @@ describe('掷骰与控骰', () => {
 describe('地产', () => {
   it('过路费按等级计算，节庆翻倍，收购价为投入 ×2', () => {
     const s = createGame({ seed: 1, seats: SEATS });
-    s.tiles[9] = { owner: 1, lv: 2 }; // 东京 18 万
+    s.tiles[9] = { owner: 1, lv: 2, mortgaged: false }; // 东京 18 万
     expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[2]));
     s.festivalTile = 9;
     expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[2] * 2));
@@ -89,7 +89,7 @@ describe('地产', () => {
       const s = structuredClone(base);
       s.rng = seed;
       s.seats[0].pos = 2;
-      s.tiles[9] = { owner: 1, lv: 1 };
+      s.tiles[9] = { owner: 1, lv: 1, mortgaged: false };
       const r = ok(s, 0, { type: 'roll', zone: 1 });
       if (r.state.seats[0].pos !== 9) continue;
       const pay = r.events.find((e) => e.t === 'pay');
@@ -99,7 +99,7 @@ describe('地产', () => {
       expect(r2.state.tiles[9].owner).toBe(0);
       // 地标锁定
       const s3 = structuredClone(base);
-      s3.rng = seed; s3.seats[0].pos = 2; s3.tiles[9] = { owner: 1, lv: 4 };
+      s3.rng = seed; s3.seats[0].pos = 2; s3.tiles[9] = { owner: 1, lv: 4, mortgaged: false };
       const r3 = ok(s3, 0, { type: 'roll', zone: 1 });
       expect(r3.state.pending?.kind).not.toBe('takeover');
       return;
@@ -110,8 +110,8 @@ describe('地产', () => {
   it('现金不足先变卖地产，仍不足则破产', () => {
     const s = createGame({ seed: 3, seats: SEATS.slice(0, 2) });
     s.seats[0].cash = 1;
-    s.tiles[1] = { owner: 0, lv: 0 };
-    s.tiles[30] = { owner: 1, lv: 4 }; s.tiles[31] = { owner: 1, lv: 4 };
+    s.tiles[1] = { owner: 0, lv: 0, mortgaged: false };
+    s.tiles[30] = { owner: 1, lv: 4, mortgaged: false }; s.tiles[31] = { owner: 1, lv: 4, mortgaged: false };
     for (let seed = 1; seed < 400; seed++) {
       const t = structuredClone(s);
       t.rng = seed; t.seats[0].pos = 26;
@@ -130,7 +130,7 @@ describe('地产', () => {
 describe('胜负', () => {
   it('观光地独占立即获胜', () => {
     const s = createGame({ seed: 5, seats: SEATS });
-    TOURS.slice(0, 3).forEach((i) => (s.tiles[i] = { owner: 0, lv: 0 }));
+    TOURS.slice(0, 3).forEach((i) => (s.tiles[i] = { owner: 0, lv: 0, mortgaged: false }));
     for (let seed = 1; seed < 500; seed++) {
       const t = structuredClone(s);
       t.rng = seed; t.seats[0].pos = 22; // 26 大峡谷在 4 步后
@@ -245,7 +245,7 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
   it('护盾 / 双倍收租（限时至自己下回合开始）', () => {
     const s = fresh();
     s.seats[0].items = ['shield', 'doubleToll'];
-    s.tiles[9] = { owner: 0, lv: 2 };
+    s.tiles[9] = { owner: 0, lv: 2, mortgaged: false };
     const base = tollOf(s, 9);
     let r = ok(s, 0, { type: 'useItem', item: 'shield' });
     expect(r.state.seats[0].shield).toBe(true);
@@ -256,9 +256,9 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     // 回合结束后仍生效，轮回到自己时清除
     let cur = ok(t, 0, { type: 'roll', zone: 0 }).state;
     if (cur.phase === 'choose') cur = ok(cur, 0, { type: 'choose', option: -1 }).state;
-    while (cur.turn !== 0 && cur.phase !== 'ended') {
+    while ((cur.turn !== 0 || cur.phase !== 'roll') && cur.phase !== 'ended') {
       expect(cur.seats[0].doubleToll).toBe(true);
-      cur = ok(cur, cur.turn, botAction(cur, cur.turn)).state;
+      cur = ok(cur, actorOf(cur), botAction(cur, actorOf(cur))).state;
     }
     if (cur.phase !== 'ended') expect(cur.seats[0].doubleToll).toBe(false);
   });
@@ -266,9 +266,9 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
   it('强拆 / 免费建造 / 传送', () => {
     const s = fresh();
     s.seats[0].items = ['demolish', 'freeBuild', 'teleport'];
-    s.tiles[9] = { owner: 1, lv: 3 };
-    s.tiles[10] = { owner: 1, lv: 4 };
-    s.tiles[1] = { owner: 0, lv: 1 };
+    s.tiles[9] = { owner: 1, lv: 3, mortgaged: false };
+    s.tiles[10] = { owner: 1, lv: 4, mortgaged: false };
+    s.tiles[1] = { owner: 0, lv: 1, mortgaged: false };
     expect(applyAction(s, 0, { type: 'useItem', item: 'demolish', target: 10 }).ok).toBe(false);
     let r = ok(s, 0, { type: 'useItem', item: 'demolish', target: 9 });
     expect(r.state.tiles[9].lv).toBe(2);
@@ -279,7 +279,7 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     expect(r.state.seats[0].pos).toBe(5);
     expect(r.events.some((e) => e.t === 'move' && e.via === 'fly')).toBe(true);
     // 传送后若无待选项，仍在 roll 阶段可继续掷骰
-    if (r.state.phase === 'choose') r = ok(r.state, 0, { type: 'choose', option: -1 });
+    while (r.state.phase === 'choose') r = ok(r.state, actorOf(r.state), { type: 'choose', option: -1 }); // 放弃购买 → 竞拍全员弃拍
     expect(r.state.phase).toBe('roll');
     expect(r.state.turn).toBe(0);
   });
@@ -287,7 +287,7 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
   it('五个角色技能与冷却', () => {
     const run = (charId: 'jin' | 'li' | 'wang' | 'xing' | 'panda') => {
       const s = createGame({ seed: 3, seats: [{ id: 'a', name: 'a', charId }, SEATS[1]] });
-      s.tiles[1] = { owner: 0, lv: 1 };
+      s.tiles[1] = { owner: 0, lv: 1, mortgaged: false };
       return s;
     };
     let s = run('jin');
@@ -298,12 +298,12 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     s = run('jin'); s.seats[0].cash = 5000;
     expect(ok(s, 0, { type: 'useSkill' }).state.seats[0].cash).toBe(5000 + RULES.jinSkillCap);
 
-    s = run('li'); s.tiles[9] = { owner: 1, lv: 1 };
+    s = run('li'); s.tiles[9] = { owner: 1, lv: 1, mortgaged: false };
     const before = takeoverCost(s, 0, 9);
     r = ok(s, 0, { type: 'useSkill' });
     expect(Math.abs(takeoverCost(r.state, 0, 9) - before * RULES.liSkillTakeover)).toBeLessThanOrEqual(1);
 
-    s = run('wang'); s.tiles[9] = { owner: 0, lv: 1 };
+    s = run('wang'); s.tiles[9] = { owner: 0, lv: 1, mortgaged: false };
     const tb = tollOf(s, 9);
     r = ok(s, 0, { type: 'useSkill' });
     expect(tollOf(r.state, 9)).toBe(Math.round(tb * RULES.wangSkillToll));
@@ -318,7 +318,7 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     s = run('panda');
     r = ok(s, 0, { type: 'useSkill' });
     expect(r.state.tiles[1].lv).toBe(2);
-    s = run('panda'); s.tiles[1] = { owner: 0, lv: 4 };
+    s = run('panda'); s.tiles[1] = { owner: 0, lv: 4, mortgaged: false };
     r = ok(s, 0, { type: 'useSkill' });
     expect(r.state.seats[0].cash).toBe(RULES.startCash + RULES.pandaSkillCash);
   });
@@ -327,7 +327,7 @@ describe('v0.2 阶段1：道具卡与主动技能', () => {
     let s = fresh();
     s.seats[0].skillCd = 2;
     for (let n = 0; n < 40 && s.phase !== 'ended'; n++) {
-      s = ok(s, s.turn, botAction(s, s.turn)).state;
+      s = ok(s, actorOf(s), botAction(s, actorOf(s))).state;
     }
     expect(s.seats[0].skillCd).toBeLessThanOrEqual(RULES.skillCooldown);
   });
@@ -346,7 +346,7 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
     // 让全员依次结束回合直到轮回；返回刚进入新一轮时的 { state, events }
     let s = s0;
     for (let n = 0; n < 200; n++) {
-      const r = ok(s, s.turn, botAction(s, s.turn));
+      const r = ok(s, actorOf(s), botAction(s, actorOf(s)));
       const wasRound = s.round;
       s = r.state;
       if (s.round > wasRound) return { s, events: r.events };
@@ -359,7 +359,7 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
     const draws: number[] = [];
     for (let n = 0; n < 4000 && s.phase !== 'ended' && s.round <= 13; n++) {
       const wasRound = s.round;
-      const r = ok(s, s.turn, botAction(s, s.turn));
+      const r = ok(s, actorOf(s), botAction(s, actorOf(s)));
       s = r.state;
       if (s.round !== wasRound) {
         if (s.round % RULES.globalEventEvery !== 0 && s.globalEvent) throw new Error('非抽取回合不应有事件');
@@ -388,8 +388,8 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
 
   it('全局事件倍率：旅游旺季 / 地产热潮 / 经济萧条 / 建设补贴；过期后恢复', () => {
     const s = fresh();
-    s.tiles[9] = { owner: 1, lv: 2 };  // 东京（城市，小狸持有）
-    s.tiles[5] = { owner: 1, lv: 0 };  // 桂林（观光地）
+    s.tiles[9] = { owner: 1, lv: 2, mortgaged: false };  // 东京（城市，小狸持有）
+    s.tiles[5] = { owner: 1, lv: 0, mortgaged: false };  // 桂林（观光地）
     const city = tollOf(s, 9), tour = tollOf(s, 5);
     s.globalEvent = { id: 'tourBoom', untilRound: s.round };
     expect(tollOf(s, 5)).toBe(tour * 2);
@@ -421,7 +421,7 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
 
   it('叠加顺序：先节庆/色组/持有者倍率，再全局倍率，最后取整一次', () => {
     const s = fresh();
-    GROUPS.g3.forEach((i) => (s.tiles[i] = { owner: 2, lv: 1 })); // 老王集齐 g3（东京、大阪）
+    GROUPS.g3.forEach((i) => (s.tiles[i] = { owner: 2, lv: 1, mortgaged: false })); // 老王集齐 g3（东京、大阪）
     s.festivalTile = 9;
     s.seats[2].doubleToll = true;
     s.globalEvent = { id: 'propertyBoom', untilRound: s.round };
@@ -431,13 +431,13 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
 
   it('色组集齐：该组城市过路费 ×1.5，缺一块则无加成；观光地不受影响', () => {
     const s = fresh();
-    s.tiles[9] = { owner: 0, lv: 1 };
+    s.tiles[9] = { owner: 0, lv: 1, mortgaged: false };
     const base = tollOf(s, 9);
-    s.tiles[10] = { owner: 0, lv: 0 };
+    s.tiles[10] = { owner: 0, lv: 0, mortgaged: false };
     expect(groupSetOwner(s, 9)).toBe(0);
     expect(tollOf(s, 9)).toBe(Math.round(18 * RULES.tollMult[1] * RULES.groupSetTollMult));
     expect(tollOf(s, 9)).toBeGreaterThan(base);
-    s.tiles[10] = { owner: 1, lv: 0 };
+    s.tiles[10] = { owner: 1, lv: 0, mortgaged: false };
     expect(groupSetOwner(s, 9)).toBeNull();
     expect(tollOf(s, 9)).toBe(base);
   });
@@ -467,7 +467,7 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
     });
   });
   it('机会卡：后退 3 步（经过起点不领月薪），落地结算', () => {
-    cardRun('back', (s) => { s.tiles[31] = { owner: 1, lv: 1 }; }, (r) => {
+    cardRun('back', (s) => { s.tiles[31] = { owner: 1, lv: 1, mortgaged: false }; }, (r) => {
       expect(r.state.seats[0].pos).toBe(31);
       expect(r.events.some((e) => e.t === 'salary')).toBe(false);
       expect(r.events.some((e) => e.t === 'pay' && e.reason === 'toll' && e.tile === 31)).toBe(true);
@@ -514,9 +514,9 @@ describe('v0.2 阶段3：回放导出与 accountId 透传', () => {
     let s = createGame(cfg);
     const rec = new ReplayRecorder(cfg);
     while (s.phase !== 'ended') {
-      const a = botAction(s, s.turn);
-      const r = ok(s, s.turn, a);
-      rec.push(s.turn, a);
+      const who = actorOf(s), a = botAction(s, who);
+      const r = ok(s, who, a);
+      rec.push(who, a);
       s = r.state;
     }
     return { final: s, rec: rec.toRecord(s) };
@@ -552,4 +552,203 @@ describe('v0.2 阶段3：回放导出与 accountId 透传', () => {
     const strip = (s: GameState) => ({ ...s, seats: s.seats.map(({ accountId: _a, ...p }) => p) });
     expect(strip(a.final)).toEqual(strip(b.final));
   });
+});
+
+describe('v0.2 阶段4：竞拍', () => {
+  const fresh = () => {
+    const s = createGame({ seed: 31, seats: SEATS });
+    s.seats.forEach((p) => (p.items = []));
+    return s;
+  };
+  /** 0 号落在东京（9，地价 18）并拿到「购买」待选项 */
+  const landBuy = (s = fresh()) => {
+    s.seats[0].pos = 0; s.seats[0].forcedSum = 9;
+    const r = ok(s, 0, { type: 'roll', zone: 2 });
+    expect(r.state.pending?.kind).toBe('buy');
+    return r.state;
+  };
+  const pass = (s: GameState) => ok(s, actorOf(s), { type: 'choose', option: -1 });
+
+  it('放弃购买 → 竞拍，起拍价为地价 50%，由下家开始出价；非出价人不能操作', () => {
+    const r = ok(landBuy(), 0, { type: 'choose', option: -1 });
+    const p = r.state.pending!;
+    expect(p.kind).toBe('auction');
+    expect(p.seat).toBe(1);
+    expect(p.tile).toBe(9);
+    expect(p.options[0].value).toBe(Math.round(18 * RULES.auctionStartRatio));
+    expect(r.state.turn).toBe(0); // 回合玩家不变
+    expect(actorOf(r.state)).toBe(1);
+    expect(applyAction(r.state, 0, { type: 'choose', option: 0 }).ok).toBe(false);
+    expect(applyAction(r.state, 2, { type: 'choose', option: 0 }).ok).toBe(false);
+    expect(r.events.some((e) => e.t === 'auctionStart')).toBe(true);
+  });
+
+  it('全员弃拍 → 流拍，地块仍无主，回合照常推进', () => {
+    let r = ok(landBuy(), 0, { type: 'choose', option: -1 });
+    r = pass(r.state); r = pass(r.state); r = pass(r.state);
+    expect(r.state.tiles[9].owner).toBeNull();
+    expect(r.events.some((e) => e.t === 'auctionFail')).toBe(true);
+    expect(r.state.phase).toBe('roll');
+    expect(r.state.turn).toBe(1);
+  });
+
+  it('轮流加价，价高者以 lv0 成交并付款，最小加价 5 万', () => {
+    let r = ok(landBuy(), 0, { type: 'choose', option: -1 });   // 1 号先出价
+    r = ok(r.state, 1, { type: 'choose', option: 0 });          // 1 出 9
+    expect(r.state.pending!.seat).toBe(2);
+    expect(r.state.pending!.options[0].value).toBe(9 + RULES.auctionMinRaise);
+    r = ok(r.state, 2, { type: 'choose', option: 1 });          // 2 出 14+10=24
+    expect(r.state.pending!.options[0].value).toBe(24 + RULES.auctionMinRaise);
+    r = pass(r.state);                                          // 3 弃拍
+    expect(r.state.pending!.seat).toBe(1);                      // 1 号再次被询问（已被超过）
+    r = pass(r.state);                                          // 1 弃拍 → 2 号最高价者得
+    expect(r.state.tiles[9]).toEqual({ owner: 2, lv: 0, mortgaged: false });
+    expect(r.state.seats[2].cash).toBe(RULES.startCash - 24);
+    expect(r.state.seats[1].cash).toBe(RULES.startCash);        // 弃拍者不付钱
+    expect(r.state.seats[0].cash).toBe(RULES.startCash);
+    expect(r.events.find((e) => e.t === 'auctionWin')).toMatchObject({ seat: 2, tile: 9, amount: 24 });
+    expect(r.state.turn).toBe(1);
+  });
+
+  it('现金不足最低报价的玩家自动弃拍；出价选项不超过现金', () => {
+    const s = landBuy();
+    s.seats[1].cash = 5; s.seats[2].cash = 12;
+    const r = ok(s, 0, { type: 'choose', option: -1 });
+    expect(r.events.some((e) => e.t === 'auctionPass' && e.seat === 1)).toBe(true);
+    expect(r.state.pending!.seat).toBe(2);
+    expect(r.state.pending!.options.map((o) => o.value)).toEqual([9]); // 9+10 超过 12 现金
+  });
+
+  it('机器人 / 托管能推进竞拍，且整局可回放', () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const { s } = playOut(seed);
+      expect(s.phase).toBe('ended');
+      const a = playOut(seed).s;
+      expect(a).toEqual(s);
+    }
+    // 统计竞拍确实发生过
+    for (let seed = 1; seed <= 40 && !seen; seed++) {
+      let s = createGame({ seed, seats: SEATS.map((x) => ({ ...x, isBot: true })) });
+      while (s.phase !== 'ended') {
+        const r = ok(s, actorOf(s), botAction(s, actorOf(s)));
+        if (r.events.some((e) => e.t === 'auctionWin')) seen++;
+        s = r.state;
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.2 阶段4：抵押与赎回', () => {
+  const fresh = () => {
+    const s = createGame({ seed: 41, seats: SEATS });
+    s.seats.forEach((p) => (p.items = []));
+    return s;
+  };
+
+  it('抵押：得款为投入 ×50%，赎回价为得款 ×110%；非法情形报错且不改状态', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 0, lv: 2, mortgaged: false }; // 18 + 9 + 18 = 45
+    const gain = Math.round(45 * RULES.mortgageRatio);
+    expect(mortgageValue(s, 9)).toBe(gain);
+    expect(redeemCost(s, 9)).toBe(Math.round(gain * RULES.redeemMult));
+    expect(applyAction(s, 0, { type: 'mortgage', tile: 10 }).ok).toBe(false); // 无主
+    expect(applyAction(s, 1, { type: 'mortgage', tile: 9 }).ok).toBe(false);  // 非本回合
+    expect(applyAction(s, 0, { type: 'mortgage', tile: 2 }).ok).toBe(false);  // 非地产
+    expect(applyAction(s, 0, { type: 'redeem', tile: 9 }).ok).toBe(false);    // 未抵押
+    const r = ok(s, 0, { type: 'mortgage', tile: 9 });
+    expect(r.state.tiles[9].mortgaged).toBe(true);
+    expect(r.state.seats[0].cash).toBe(RULES.startCash + gain);
+    expect(r.state.phase).toBe('roll');
+    expect(s.tiles[9].mortgaged).toBe(false); // 入参未被修改
+    expect(applyAction(r.state, 0, { type: 'mortgage', tile: 9 }).ok).toBe(false);
+    const r2 = ok(r.state, 0, { type: 'redeem', tile: 9 });
+    expect(r2.state.tiles[9].mortgaged).toBe(false);
+    expect(r2.state.seats[0].cash).toBe(RULES.startCash + gain - redeemCost(s, 9));
+    const poor = structuredClone(r.state); poor.seats[0].cash = 1;
+    expect(applyAction(poor, 0, { type: 'redeem', tile: 9 }).ok).toBe(false);
+    expect(poor.seats[0].cash).toBe(1);
+  });
+
+  it('抵押中的地产：不收过路费、不可收购、不可升级、不可强拆', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 1, lv: 1, mortgaged: true };
+    expect(tollOf(s, 9)).toBe(0);
+    s.seats[0].pos = 0; s.seats[0].forcedSum = 9;
+    const r = ok(s, 0, { type: 'roll', zone: 2 });
+    expect(r.state.seats[0].pos).toBe(9);
+    expect(r.events.some((e) => e.t === 'pay')).toBe(false);
+    expect(r.state.pending?.kind).not.toBe('takeover');
+    expect(r.state.seats[0].cash).toBe(RULES.startCash);
+    // 自己的抵押地产没有升级选项
+    const t = fresh(); t.tiles[9] = { owner: 0, lv: 1, mortgaged: true };
+    expect(upgradeOptions(t, 0, 9)).toEqual([]);
+    t.seats[1].items = [];
+    t.seats[0].items = ['demolish'];
+    t.tiles[10] = { owner: 1, lv: 2, mortgaged: true };
+    expect(applyAction(t, 0, { type: 'useItem', item: 'demolish', target: 10 }).ok).toBe(false);
+    // 赎回后恢复收费
+    t.tiles[9].mortgaged = false;
+    expect(tollOf(t, 9)).toBeGreaterThan(0);
+  });
+
+  it('现金不足清算：抵押地产不提供现金（清算价值 0），只随破产收归银行', () => {
+    const s = createGame({ seed: 3, seats: SEATS.slice(0, 2) });
+    s.seats.forEach((p) => (p.items = []));
+    s.seats[0].cash = 1;
+    s.tiles[1] = { owner: 0, lv: 0, mortgaged: false };
+    s.tiles[3] = { owner: 0, lv: 3, mortgaged: true };
+    s.tiles[30] = { owner: 1, lv: 4, mortgaged: false }; s.tiles[31] = { owner: 1, lv: 4, mortgaged: false };
+    for (let seed = 1; seed < 400; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed; t.seats[0].pos = 26;
+      const r = applyAction(t, 0, { type: 'roll', zone: 0 });
+      if (!r.ok || ![30, 31].includes(r.state.seats[0].pos)) continue;
+      const sold = r.events.filter((e) => e.t === 'sell').map((e) => (e.t === 'sell' ? e.tile : -1));
+      expect(sold).toEqual([1]);
+      expect(r.state.seats[0].bankrupt).toBe(true);
+      expect(r.state.tiles[3]).toEqual({ owner: null, lv: 0, mortgaged: false });
+      return;
+    }
+    throw new Error('没找到合适的种子');
+  });
+
+  it('抵押中的地产不计入独占胜利与色组加成；总资产按净值计算', () => {
+    const s = fresh();
+    TOURS.forEach((i) => (s.tiles[i] = { owner: 0, lv: 0, mortgaged: false }));
+    expect(monopolyOf(s, 0)).toBe('tour');
+    s.tiles[TOURS[0]].mortgaged = true;
+    expect(monopolyOf(s, 0)).toBeNull();
+    GROUPS.g3.forEach((i) => (s.tiles[i] = { owner: 1, lv: 1, mortgaged: false }));
+    expect(groupSetOwner(s, 9)).toBe(1);
+    s.tiles[10].mortgaged = true;
+    expect(groupSetOwner(s, 9)).toBeNull();
+  });
+
+  it('总资产：抵押后现金增加，资产只扣掉赎回价，不会重复计入', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 0, lv: 2, mortgaged: false };
+    const before = totalAssets(s, 0);
+    const r = ok(s, 0, { type: 'mortgage', tile: 9 });
+    expect(totalAssets(r.state, 0)).toBe(before - (redeemCost(s, 9) - mortgageValue(s, 9)));
+  });
+
+  it('机器人：只在面临付不起的过路费时才抵押，现金充裕不抵押，并会在安全时赎回', () => {
+    const s = fresh();
+    s.tiles[9] = { owner: 0, lv: 2, mortgaged: false };      // 我方地产
+    s.tiles[31] = { owner: 1, lv: 4, mortgaged: false };     // 对手地标（高额过路费）
+    s.seats[0].pos = 28; s.seats[0].cash = 10;               // 31 在前方 3 格
+    const a = botAction(s, 0);
+    expect(a).toEqual({ type: 'mortgage', tile: 9 });
+    const rich = structuredClone(s); rich.seats[0].cash = 5000;
+    expect(botAction(rich, 0).type).not.toBe('mortgage');
+    // 没有威胁时不抵押
+    const calm = structuredClone(s); calm.seats[0].pos = 0; calm.seats[0].cash = 10;
+    expect(botAction(calm, 0).type).not.toBe('mortgage');
+    // 抵押过且现金充裕、前方无威胁 → 赎回
+    const back = structuredClone(calm); back.tiles[9].mortgaged = true; back.seats[0].cash = 1000;
+    expect(botAction(back, 0)).toEqual({ type: 'redeem', tile: 9 });
+  });
+
 });

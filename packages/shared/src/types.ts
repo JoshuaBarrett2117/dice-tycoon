@@ -49,9 +49,27 @@ export interface TileState {
   owner: number | null;
   /** 0 空地 / 1 别墅 / 2 公寓 / 3 酒店 / 4 地标（观光地恒为 0） */
   lv: number;
+  /** 抵押中：不收过路费、不可升级 / 收购 / 强拆，且不计入独占胜利与色组加成 */
+  mortgaged: boolean;
 }
 
-export type PendingKind = 'buy' | 'upgrade' | 'takeover' | 'festival' | 'fly' | 'item';
+export type PendingKind = 'buy' | 'upgrade' | 'takeover' | 'festival' | 'fly' | 'item' | 'auction';
+
+/** 竞拍状态：放弃购买后由其余玩家轮流出价（回合制，无计时器，托管 / 机器人可推进） */
+export interface AuctionState {
+  tile: number;
+  /** 放弃购买的玩家（仍是回合玩家） */
+  starter: number;
+  /** 起拍价（万） */
+  start: number;
+  /** 当前最高价；无人出价时为 0 */
+  high: number;
+  highSeat: number | null;
+  /** 参与竞拍的座位（按座位顺序，从放弃者的下家开始） */
+  order: number[];
+  /** 已弃拍（或现金不足无法出价）的座位 */
+  out: number[];
+}
 
 export interface PendingOption {
   /** buy/upgrade：目标等级；takeover：1；festival/fly：目标格子 */
@@ -64,6 +82,8 @@ export interface Pending {
   kind: PendingKind;
   /** kind='item'：正在选目标的道具 */
   item?: ItemId;
+  /** kind='auction'：竞拍进度；此时 seat 是当前出价人，而不是回合玩家 */
+  auction?: AuctionState;
   seat: number;
   tile: number | null;
   options: PendingOption[];
@@ -104,7 +124,11 @@ export type Action =
   /** 掷骰前使用道具；需要目标的道具若不带 target 则进入 pending(kind='item') 选目标。dice 的 target 为总点数 2–12，其余为格子序号 */
   | { type: 'useItem'; item: ItemId; target?: number }
   /** 掷骰前使用角色主动技能 */
-  | { type: 'useSkill' };
+  | { type: 'useSkill' }
+  /** 掷骰前抵押自己的一处地产，得款 = 已投入总价 × RULES.mortgageRatio */
+  | { type: 'mortgage'; tile: number }
+  /** 掷骰前赎回抵押中的地产，赎回价 = 抵押得款 × RULES.redeemMult */
+  | { type: 'redeem'; tile: number };
 
 export type CardId =
   | 'bonus' | 'fine' | 'toStart' | 'island' | 'freeUpgrade' | 'shield'
@@ -138,6 +162,13 @@ export type GameEvent =
   | { t: 'roadblockHit'; seat: number; owner: number; tile: number }
   | { t: 'demolish'; seat: number; from: number; tile: number; lv: number }
   | { t: 'globalEvent'; id: GlobalEventId; round: number }
+  | { t: 'auctionStart'; seat: number; tile: number; start: number }
+  | { t: 'auctionBid'; seat: number; tile: number; amount: number }
+  | { t: 'auctionPass'; seat: number; tile: number }
+  | { t: 'auctionWin'; seat: number; tile: number; amount: number }
+  | { t: 'auctionFail'; tile: number }
+  | { t: 'mortgage'; seat: number; tile: number; amount: number }
+  | { t: 'redeem'; seat: number; tile: number; cost: number }
   | { t: 'prompt'; pending: Pending }
   | { t: 'decline'; seat: number; kind: string }
   | { t: 'end'; winner: number; reason: WinReason };

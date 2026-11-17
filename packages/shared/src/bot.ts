@@ -4,7 +4,7 @@
  */
 import { BOARD, BOARD_SIZE, GROUPS, TOURS } from './board';
 import { ZONES } from './config';
-import { applyAction, itemTargets, tollOf } from './engine';
+import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf } from './engine';
 import type { Action, GameState } from './types';
 
 /** 评估落在某格的好坏（越大越好） */
@@ -83,13 +83,62 @@ export function preRollAction(s: GameState, seat: number): Action | null {
   return null;
 }
 
+/** 前方 2–12 格内他人地产的最大过路费（抵押 / 赎回的判断依据；有护盾时视为无威胁） */
+function tollThreat(s: GameState, seat: number): number {
+  const p = s.seats[seat];
+  if (p.shield) return 0;
+  let m = 0;
+  for (let n = 2; n <= 12; n++) {
+    const i = (p.pos + n) % BOARD_SIZE, t = s.tiles[i];
+    if (t.owner != null && t.owner !== seat && !t.mortgaged) m = Math.max(m, tollOf(s, i));
+  }
+  return m;
+}
+
+/**
+ * 抵押 / 赎回：只在「面临支付」时才抵押——前方有付不起的过路费、现金又低于它时，
+ * 按过路费价值从低到高抵押；现金充裕（赎回后仍高于威胁与安全线）才赎回。绝不主动抵押。
+ * 抵押条件 cash < threat 与赎回条件 cash - cost >= threat 互斥，同一回合不会来回振荡。
+ */
+export function mortgageDecision(s: GameState, seat: number): Action | null {
+  const p = s.seats[seat], threat = tollThreat(s, seat);
+  const mine = s.tiles.map((t, i) => (t.owner === seat ? i : -1)).filter((i) => i >= 0);
+  if (threat > 0 && p.cash < threat) {
+    const c = mine.filter((i) => !s.tiles[i].mortgaged)
+      .sort((a, b) => tollOf(s, a) - tollOf(s, b) || mortgageValue(s, b) - mortgageValue(s, a))[0];
+    if (c !== undefined) return { type: 'mortgage', tile: c };
+    return null;
+  }
+  const r = mine.filter((i) => s.tiles[i].mortgaged)
+    .sort((a, b) => redeemCost(s, a) - redeemCost(s, b))
+    .find((i) => p.cash - redeemCost(s, i) >= Math.max(150, threat));
+  return r !== undefined ? { type: 'redeem', tile: r } : null;
+}
+
+/** 竞拍估值：地价 ×0.9，凑同色组 / 观光地每多一块 +35%，上限内最低价出价，超限或会掏空现金则弃拍 */
+function auctionLimit(s: GameState, seat: number, tile: number): number {
+  const d = BOARD[tile];
+  let own = 0;
+  if (d.kind === 'city' && d.group) own = GROUPS[d.group].filter((x) => s.tiles[x].owner === seat).length;
+  else if (d.kind === 'tour') own = TOURS.filter((x) => s.tiles[x].owner === seat).length;
+  return Math.round(d.price * (0.9 + 0.35 * own));
+}
+
 export function botAction(s: GameState, seat: number): Action {
-  if (s.phase === 'roll') return preRollAction(s, seat) ?? { type: 'roll', zone: chooseZone(s, seat) };
+  if (s.phase === 'roll') {
+    const m = mortgageDecision(s, seat);
+    if (m && applyAction(s, seat, m).ok) return m;
+    return preRollAction(s, seat) ?? { type: 'roll', zone: chooseZone(s, seat) };
+  }
   const p = s.pending!;
   const cash = s.seats[seat].cash;
   const reserve = Math.max(40, cash * 0.25);
   switch (p.kind) {
     case 'item': return { type: 'choose', option: -1 };
+    case 'auction': {
+      const o = p.options[0], limit = auctionLimit(s, seat, p.tile!);
+      return { type: 'choose', option: o && o.value <= limit && cash - o.value >= 40 ? 0 : -1 };
+    }
     case 'buy':
     case 'upgrade': {
       // 选能负担的最高档，同时保留一部分现金应对过路费

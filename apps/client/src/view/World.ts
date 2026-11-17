@@ -147,11 +147,18 @@ export class World {
     g.rect(-lw / 2, ld / 2 - band, lw, band).fill(hexNum(col));
     g.rect(-lw / 2, ld / 2 - band, lw, 3).fill({ color: 0xffffff, alpha: 0.28 });
     inner.addChild(g);
+    if (t.mortgaged) {
+      // 抵押中：灰色蒙层 + 斜杠
+      const m = new Graphics();
+      m.rect(-lw / 2, -ld / 2, lw, ld).fill({ color: 0x475569, alpha: 0.5 });
+      m.moveTo(-lw / 2, -ld / 2).lineTo(lw / 2, ld / 2).stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
+      inner.addChild(m);
+    }
     const nm = txt(d.name, d.name.length > 3 ? 11 : 14, 0xffffff, 0x000000, 3);
     nm.anchor.set(0.5); nm.y = ld / 2 - band / 2 + 1;
     inner.addChild(nm);
     let sub: Text | null = null;
-    if (own) sub = txt(`${setOwner != null ? '★ ' : ''}过路费 ¥${tollOf(state, i)}万`, 9, shade(own, -0.1));
+    if (own) sub = txt(t.mortgaged ? '抵押中' : `${setOwner != null ? '★ ' : ''}过路费 ¥${tollOf(state, i)}万`, 9, shade(own, -0.1));
     else if (d.kind === 'card') { sub = txt('?', 34, hexNum(col)); sub.y = -ld * 0.16; }
     else if (d.kind === 'tax') sub = txt('税', 22, 0x64748b);
     else if (d.kind === 'tour') sub = txt(`观光地 ¥${d.price}万`, 10, 0x0b6e9e);
