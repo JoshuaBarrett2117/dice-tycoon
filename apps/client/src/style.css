@@ -202,3 +202,7 @@ button { font-family: inherit; }
 #overlay .qbar { width: 420px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.25); overflow: hidden; }
 #overlay .qbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#ffd25a,#ff7a00); }
 #overlay .green { background: linear-gradient(#4ade80, #16a34a); box-shadow: inset 0 -5px 0 rgba(0,70,20,.35), 0 6px 0 #0f7a38; }
+
+#loading{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0d3b4f;color:#fff;font-size:16px}
+#loading .lb{width:min(60vw,360px);height:10px;border-radius:5px;background:rgba(255,255,255,.2);overflow:hidden}
+#loading .lf{height:100%;width:0;background:#ffd34d;transition:width .15s}

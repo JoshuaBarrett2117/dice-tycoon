@@ -52,7 +52,13 @@ export class World {
     await this.app.init({ width: 1280, height: 720, backgroundAlpha: 0, antialias: true, resolution: this.res(), autoDensity: true });
     host.prepend(this.app.canvas);
     const base = import.meta.env.BASE_URL + 'assets/';
-    const loaded = await Assets.load(ASSET_LIST.map((f) => ({ alias: f.replace(/\.\w+$/, ''), src: base + f })));
+    const loaded = await Assets.load(ASSET_LIST.map((f) => ({ alias: f.replace(/\.\w+$/, ''), src: base + f })), (pr: number) => {
+      const pct = Math.round(pr * 100);
+      const lf = document.getElementById('lf'), lp = document.getElementById('lp');
+      if (lf) lf.style.width = pct + '%';
+      if (lp) lp.textContent = `加载中 ${pct}%`;
+    });
+    document.getElementById('loading')?.remove();
     this.tex = loaded as Record<string, Texture>;
     this.app.stage.addChild(this.root);
     const bg = new Sprite(this.tex.bg);
