@@ -80,7 +80,16 @@ const AU_IMPL=(()=>{const AC=window.AudioContext||window.webkitAudioContext;cons
   tax(){const t=T();I.marimba(57,t,.3,sfx);I.marimba(53,t+.15,.3,sfx);I.bass(41,t+.3,.4,.4,sfx)},
   win(){const t=T();[[65,0],[69,.15],[72,.3],[77,.45]].forEach(([n,d])=>I.brass(n,t+d,.18,.24));I.brass(77,t+.65,.9,.26);I.brass(81,t+.65,.9,.2);[89,93,96].forEach((n,i)=>I.bell(n,t+.65+i*.08,.12))}
  };
- function play(n,...a){if(!sfxOn)return;if(ctx.state!=='running')ctx.resume();try{S[n](...a)}catch(e){}}
+ // 真实音频文件通道：优先 /audio/sfx/<name>.ogg|.m4a（懒加载、首次 play 才请求），缺失或解码失败则永久回退合成音效
+ const FILES:Record<string,AudioBuffer|null|'loading'>={};
+ const EXT=(()=>{const a=document.createElement('audio');return a.canPlayType&&a.canPlayType('audio/ogg; codecs=vorbis')?'ogg':'m4a'})();
+ function loadFile(n:string){if(FILES[n]!==undefined)return;FILES[n]='loading';
+  fetch(`${import.meta.env.BASE_URL||'/'}audio/sfx/${n}.${EXT}`).then(r=>{if(!r.ok||/text\/html/.test(r.headers.get('content-type')||''))throw 0;return r.arrayBuffer()})
+  .then(b=>ctx.decodeAudioData(b)).then(buf=>{FILES[n]=buf}).catch(()=>{FILES[n]=null})}
+ function play(n,...a){if(!sfxOn)return;if(ctx.state!=='running')ctx.resume();
+  const f=FILES[n];if(f&&f!=='loading'){try{const s=ctx.createBufferSource();s.buffer=f;s.connect(sfx);s.start();return}catch(e){}}
+  else if(f===undefined)loadFile(n);
+  try{S[n](...a)}catch(e){}}
  function unlock(){if(ctx.state!=='running')ctx.resume();if(on)startBGM()}
  return {ctx,rec,play,unlock,startBGM,stopBGM,setMood:m=>mood=m,
   toggleMusic(){on=!on;music.gain.setTargetAtTime(on?.42:0,ctx.currentTime,.05);if(on)startBGM();return on},
