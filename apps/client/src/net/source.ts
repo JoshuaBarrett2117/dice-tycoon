@@ -72,6 +72,8 @@ export class LocalSource implements GameSource {
 // ───────────────────────── 在线 ─────────────────────────
 export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus }
 
+export interface JoinOpts { name: string; charId: CharId; accountId?: string }
+
 export class NetSource implements GameSource {
   mySeat = -1;
   kind: 'online' | 'spectate' = 'online';
@@ -93,21 +95,21 @@ export class NetSource implements GameSource {
     room.onMessage('error', (m: { message: string }) => { console.warn('[server]', m.message); this.errCb?.(m); });
   }
 
-  static async connect(url: string, opts: { name: string; charId: CharId }, roomId?: string) {
+  static async connect(url: string, opts: JoinOpts, roomId?: string) {
     const client = new Client(url);
     const room = roomId ? await client.joinById(roomId, opts) : await client.create(ROOM_NAME, opts);
     return new NetSource(room);
   }
 
   /** 快速匹配：加入（或创建）匹配房，凑满 4 人或超时补位后自动开局；离开房间即取消匹配 */
-  static async connectQuick(url: string, opts: { name: string; charId: CharId }) {
+  static async connectQuick(url: string, opts: JoinOpts) {
     const client = new Client(url);
     const room = await client.joinOrCreate(ROOM_NAME, { ...opts, quick: true });
     return new NetSource(room);
   }
 
   /** 观战：凭房间号加入已开局的房间，不占座位、不能操作 */
-  static async spectate(url: string, opts: { name: string; charId: CharId }, roomId: string) {
+  static async spectate(url: string, opts: JoinOpts, roomId: string) {
     const client = new Client(url);
     const room = await client.joinById(roomId, { ...opts, spectate: true });
     const net = new NetSource(room);
