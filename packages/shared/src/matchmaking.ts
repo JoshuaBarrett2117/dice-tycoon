@@ -37,19 +37,25 @@ export class MatchQueue {
     return this.q.length !== n;
   }
 
-  /** 当前应做什么：满员或超时则出队并返回开局名单，否则返回等待状态 */
-  poll(now: number): MatchDecision {
+  /** 只看当前该做什么，不改动队列（满员 / 超时返回 start，但名单仍留在队里） */
+  peek(now: number): MatchDecision {
     const { size, timeoutMs, minHumans } = this.opts;
     if (!this.q.length) return { kind: 'idle' };
     if (this.q.length >= size) {
-      const members = this.q.splice(0, size).map((x) => x.id);
-      return { kind: 'start', members, bots: 0, reason: 'full' };
+      return { kind: 'start', members: this.q.slice(0, size).map((x) => x.id), bots: 0, reason: 'full' };
     }
     const deadline = this.q[0].at + timeoutMs;
     if (now >= deadline && this.q.length >= minHumans) {
-      const members = this.q.splice(0).map((x) => x.id);
+      const members = this.q.map((x) => x.id);
       return { kind: 'start', members, bots: size - members.length, reason: 'timeout' };
     }
     return { kind: 'waiting', waiting: this.q.length, size, deadline };
+  }
+
+  /** 同 peek，但满员 / 超时开局时把开局名单移出队列 */
+  poll(now: number): MatchDecision {
+    const d = this.peek(now);
+    if (d.kind === 'start') this.q.splice(0, d.members.length);
+    return d;
   }
 }

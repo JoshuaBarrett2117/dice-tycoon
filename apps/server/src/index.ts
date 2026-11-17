@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { ROOM_NAME } from '@dt/shared';
+import { registry } from './registry';
 import { MatchRoom } from './rooms/MatchRoom';
 
 const port = Number(process.env.PORT || 2567);
@@ -16,6 +17,17 @@ const MIME: Record<string, string> = {
   '.json': 'application/json', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
+
+/** GET /api/rooms：观战列表（跨域放开，开发模式下客户端在另一个端口） */
+function serveApi(req: IncomingMessage, res: ServerResponse): boolean {
+  const path = (req.url || '/').split('?')[0];
+  if (path !== '/api/rooms' || (req.method !== 'GET' && req.method !== 'OPTIONS')) return false;
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, OPTIONS', 'access-control-allow-headers': 'content-type' };
+  if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return true; }
+  res.writeHead(200, { ...cors, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(JSON.stringify({ rooms: registry.list() }));
+  return true;
+}
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
   if (!staticDir || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
@@ -39,14 +51,15 @@ const http = createServer();
 const server = new Server({
   transport: new WebSocketTransport({ server: http, pingInterval: 5000, pingMaxRetries: 3 }),
 });
-server.define(ROOM_NAME, MatchRoom);
+// 快速匹配房用 quick 选项区分：joinOrCreate({ quick: true }) 只会匹配到快速匹配房，朋友房（create）不会被误入
+server.define(ROOM_NAME, MatchRoom).filterBy(['quick']);
 await server.listen(port);
 
 // Colyseus 挂好自己的 HTTP 路由后，在最前面加一层静态文件处理
 const colyseusHandlers = http.listeners('request') as ((req: IncomingMessage, res: ServerResponse) => void)[];
 http.removeAllListeners('request');
 http.on('request', (req, res) => {
-  if (serveStatic(req, res)) return;
+  if (serveApi(req, res) || serveStatic(req, res)) return;
   for (const h of colyseusHandlers) h(req, res);
 });
 

@@ -1,5 +1,5 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, type CharId, type GameRecord, type SeatConfig } from '@dt/shared';
+import { CHARACTERS, CHAR_IDS, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -48,7 +48,7 @@ function showMenu(msg = '') {
   const m = overlay('menu');
   m.innerHTML = `
     <div class="logo st3">掷富天下</div>
-    <div class="tag">网页大富翁 · v0.2 开发版</div>
+    <div class="tag">网页大富翁 · v0.3 开发版</div>
     <div class="form">
       <label>昵称 <input id="nm" maxlength="12" value="${prefs.name}"></label>
       <div class="chars">${CHAR_IDS.map((c) => `
@@ -58,9 +58,10 @@ function showMenu(msg = '') {
       <div class="btns">
         <button class="big gold" id="solo">单机对战<small>你 vs 3 个机器人</small></button>
         <button class="big blue" id="create">创建房间<small>好友联机，空位机器人补齐</small></button>
+        <button class="big green" id="quick">快速匹配<small>凑满 4 人开局，超时机器人补位</small></button>
       </div>
       <div class="join"><input id="rid" placeholder="输入房间号加入"><button id="joinb">加入</button></div>
-      <div class="subbtns"><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
+      <div class="subbtns"><button id="watch">观战列表</button><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
       <details><summary>服务器</summary><input id="srv" value="${prefs.server}"></details>
       <div class="msg">${msg}</div>
     </div>`;
@@ -77,6 +78,8 @@ function showMenu(msg = '') {
   };
   m.querySelector<HTMLButtonElement>('#solo')!.onclick = () => { save(); startSolo(); };
   m.querySelector<HTMLButtonElement>('#create')!.onclick = () => { save(); void startOnline(); };
+  m.querySelector<HTMLButtonElement>('#quick')!.onclick = () => { save(); void startQuick(); };
+  m.querySelector<HTMLButtonElement>('#watch')!.onclick = () => { save(); showRooms(); };
   m.querySelector<HTMLInputElement>('#rfile')!.onchange = async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -134,12 +137,85 @@ async function startOnline(roomId?: string) {
       <button class="link" id="back">离开房间</button><div class="err"></div></div>`;
     o.querySelector<HTMLButtonElement>('#go')?.addEventListener('click', () => net.start());
     o.querySelector<HTMLButtonElement>('#back')!.onclick = () => { net.dispose(); showMenu(); };
-    if (m.seats.length === 4 && m.seats.some((s) => s.isBot)) {
+    if (m.started) {
       started = true;
       closeOverlay();
       void startGame(net);
     }
   });
+}
+
+// ───────────────────────── 快速匹配 ─────────────────────────
+async function startQuick() {
+  const o = overlay('lobby');
+  o.innerHTML = '<div class="panel"><div class="ttl">正在寻找对局…</div></div>';
+  let net: NetSource;
+  try {
+    net = await NetSource.connectQuick(prefs.server, { name: prefs.name, charId: prefs.charId });
+  } catch (err) {
+    showMenu(`匹配失败：${(err as Error).message || err}（请确认对战服已启动）`);
+    return;
+  }
+  let started = false, total = 0;
+  const cancel = () => { started = true; net.dispose(); showMenu(); };
+  net.onError((e) => { const el = o.querySelector('.err'); if (el) el.textContent = e.message; });
+  net.onLobby((m: LobbyMsg) => {
+    if (started) return;
+    if (m.started) { started = true; closeOverlay(); void startGame(net); return; }
+    const q = m.quick;
+    if (q) total = Math.max(total, q.remainingMs);
+    const left = q ? Math.ceil(q.remainingMs / 1000) : 0;
+    o.innerHTML = `<div class="panel">
+      <div class="ttl">匹配中 <b class="rid">${m.seats.length}/${q?.size ?? 4}</b></div>
+      <div class="hint">凑满 4 人立即开局；${left > 0 ? `<b>${left}</b> 秒后` : '即将'}由机器人补位开局</div>
+      <div class="qbar"><i style="width:${total ? Math.round((1 - (q?.remainingMs ?? 0) / total) * 100) : 0}%"></i></div>
+      <div class="seats">${[0, 1, 2, 3].map((i) => {
+        const s = m.seats[i];
+        return s ? `<div class="seat" style="--c:${CHARACTERS[s.charId].color}"><img src="${charUrl(s.charId)}" alt=""><b>${s.name}</b><small>${s.sessionId === net.sessionId ? '你' : '已匹配'}</small></div>`
+          : '<div class="seat empty"><b>等待中…</b><small>可由机器人补位</small></div>';
+      }).join('')}</div>
+      <button class="link" id="cancel">取消匹配</button><div class="err"></div></div>`;
+    o.querySelector<HTMLButtonElement>('#cancel')!.onclick = cancel;
+  });
+}
+
+// ───────────────────────── 观战 ─────────────────────────
+const httpBase = () => prefs.server.replace(/^ws/, 'http').replace(/\/+$/, '');
+
+function showRooms() {
+  const o = overlay('lobby');
+  o.innerHTML = `<div class="panel"><div class="ttl">观战列表</div>
+    <div class="hint">进行中的房间可以观战：只看不操作，不占座位</div>
+    <div class="rooms" id="rooms">加载中…</div>
+    <div class="subbtns"><button id="refresh">刷新</button></div>
+    <button class="link" id="back">返回</button><div class="err"></div></div>`;
+  const box = o.querySelector<HTMLElement>('#rooms')!;
+  const load = async () => {
+    box.textContent = '加载中…';
+    try {
+      const r = await fetch(`${httpBase()}/api/rooms`);
+      const { rooms } = (await r.json()) as { rooms: RoomBrief[] };
+      if (!rooms.length) { box.textContent = '暂时没有房间'; return; }
+      box.innerHTML = rooms.map((x) => `<div class="rm"><span>房间 <b>${x.roomId}</b> · ${x.started ? `第 ${x.round ?? 1} 回合` : '等待开局'} · ${x.players.join('、') || '机器人局'}${x.bots ? ` + ${x.bots} 机器人` : ''}</span><span>观战 ${x.spectators}/${x.maxSpectators}</span><button data-r="${x.roomId}" ${x.spectatable ? '' : 'disabled'}>${x.spectatable ? '观战' : x.started ? '已满' : '未开局'}</button></div>`).join('');
+      box.querySelectorAll<HTMLButtonElement>('button[data-r]').forEach((b) => (b.onclick = () => void startSpectate(b.dataset.r!)));
+    } catch (err) {
+      box.textContent = `获取失败：${(err as Error).message || err}（请确认对战服已启动）`;
+    }
+  };
+  o.querySelector<HTMLButtonElement>('#refresh')!.onclick = () => void load();
+  o.querySelector<HTMLButtonElement>('#back')!.onclick = () => showMenu();
+  void load();
+}
+
+async function startSpectate(roomId: string) {
+  try {
+    const net = await NetSource.spectate(prefs.server, { name: prefs.name, charId: prefs.charId }, roomId);
+    closeOverlay();
+    void startGame(net);
+  } catch (err) {
+    const el = document.querySelector('#overlay .err');
+    if (el) el.textContent = `无法观战：${(err as Error).message || err}`;
+  }
 }
 
 // ───────────────────────── 回放 ─────────────────────────
@@ -166,6 +242,12 @@ async function startGame(src: GameSource) {
   let unmountBar: (() => void) | null = null;
   const exit = () => { unmountBar?.(); showMenu(); };
   if (src instanceof ReplaySource) unmountBar = mountReplayBar(document.getElementById('hud')!, src, exit);
+  if (src instanceof NetSource && src.kind === 'spectate') {
+    const hudEl = document.getElementById('hud')!;
+    hudEl.insertAdjacentHTML('beforeend', '<div id="spec-tag">观战中 · 0 人观战</div><button id="spec-exit">退出观战</button>');
+    hudEl.querySelector<HTMLButtonElement>('#spec-exit')!.onclick = exit;
+    src.onSpectators((m) => { const t = document.getElementById('spec-tag'); if (t) t.textContent = `观战中 · ${m.count}/${m.max} 人观战`; });
+  }
   new Director(world!, hud, src, exit, (rec) => startReplay(rec));
   AU.startBGM();
 }

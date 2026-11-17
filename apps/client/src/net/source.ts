@@ -2,7 +2,7 @@ import { Client, type Room } from '@colyseus/sdk';
 import { clock } from '../core/tween';
 import {
   REPLAY_PLAYER, ROOM_NAME, ReplayPlayer, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
-  type Action, type CharId, type GameEvent, type GameRecord, type GameState, type LobbySeat, type SeatConfig,
+  type Action, type CharId, type GameEvent, type QuickStatus, type GameRecord, type GameState, type LobbySeat, type SeatConfig,
 } from '@dt/shared';
 
 export interface SyncMsg { state: GameState; events: GameEvent[]; deadline: number | null }
@@ -70,7 +70,7 @@ export class LocalSource implements GameSource {
 }
 
 // ───────────────────────── 在线 ─────────────────────────
-export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string }
+export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus }
 
 export class NetSource implements GameSource {
   mySeat = -1;
@@ -81,8 +81,11 @@ export class NetSource implements GameSource {
   private lobbyCb: ((m: LobbyMsg) => void) | null = null;
   private errCb: ((m: { message: string }) => void) | null = null;
   private replayCb: ((r: GameRecord) => void) | null = null;
+  private specCb: ((m: { count: number; max: number }) => void) | null = null;
+  private lastSpec: { count: number; max: number } | null = null;
 
   private constructor(public room: Room) {
+    room.onMessage('spectators', (m: { count: number; max: number }) => { this.lastSpec = m; this.specCb?.(m); });
     room.onMessage('seat', (m: { seat: number }) => { this.mySeat = m.seat; });
     room.onMessage('sync', (m: SyncMsg) => { if (this.cb) this.cb(m); else this.backlog.push(m); });
     room.onMessage('lobby', (m: LobbyMsg) => { this.lastLobby = m; this.lobbyCb?.(m); });
@@ -95,6 +98,24 @@ export class NetSource implements GameSource {
     const room = roomId ? await client.joinById(roomId, opts) : await client.create(ROOM_NAME, opts);
     return new NetSource(room);
   }
+
+  /** 快速匹配：加入（或创建）匹配房，凑满 4 人或超时补位后自动开局；离开房间即取消匹配 */
+  static async connectQuick(url: string, opts: { name: string; charId: CharId }) {
+    const client = new Client(url);
+    const room = await client.joinOrCreate(ROOM_NAME, { ...opts, quick: true });
+    return new NetSource(room);
+  }
+
+  /** 观战：凭房间号加入已开局的房间，不占座位、不能操作 */
+  static async spectate(url: string, opts: { name: string; charId: CharId }, roomId: string) {
+    const client = new Client(url);
+    const room = await client.joinById(roomId, { ...opts, spectate: true });
+    const net = new NetSource(room);
+    net.kind = 'spectate';
+    return net;
+  }
+
+  onSpectators(cb: (m: { count: number; max: number }) => void) { this.specCb = cb; if (this.lastSpec) cb(this.lastSpec); }
 
   get sessionId() { return this.room.sessionId; }
   onLobby(cb: (m: LobbyMsg) => void) { this.lobbyCb = cb; if (this.lastLobby) cb(this.lastLobby); }

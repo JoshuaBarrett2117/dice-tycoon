@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  ReplayPlayer, ReplayRecorder, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
+  MATCH, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type GameState, type SeatConfig,
 } from '../src';
 
@@ -820,5 +820,116 @@ describe('v0.3 阶段1：回放播放器', () => {
     expect(rk.every((r) => r.assets === totalAssets(final, r.seat))).toBe(true);
     const mid = new ReplayRecorder({ seed: 1, seats: bots }).toRecord(createGame({ seed: 1, seats: bots }));
     expect(mid.result!.ranking).toBeUndefined();
+  });
+});
+
+describe('v0.3 阶段2：观战（引擎侧约束）', () => {
+  it('观战者（不在座位上，seat = -1 或越界）的任何操作都被拒绝，且不改变状态、不影响 actorOf', () => {
+    const s0 = createGame({ seed: 21, seats: SEATS.map((x) => ({ ...x, isBot: true })) });
+    const snapshot = JSON.stringify(s0);
+    const actor = actorOf(s0);
+    const actions = [
+      { type: 'roll', zone: 0 }, { type: 'choose', option: 0 }, { type: 'useSkill' },
+      { type: 'useItem', item: 'shield' }, { type: 'mortgage', tile: 1 }, { type: 'redeem', tile: 1 },
+    ] as const;
+    for (const seat of [-1, 4, 99]) for (const a of actions) {
+      const r = applyAction(s0, seat, a);
+      expect(r.ok).toBe(false);
+    }
+    expect(JSON.stringify(s0)).toBe(snapshot);
+    expect(actorOf(s0)).toBe(actor);
+  });
+
+  it('含「观战者乱发操作」的机器人对局：不死锁、不抛错，分出胜负，结果与无观战者的对局完全一致', () => {
+    for (const seed of [5, 8, 13]) {
+      const clean = playOut(seed).s;
+      let s = createGame({ seed, seats: SEATS.map((x) => ({ ...x, isBot: true })) });
+      let steps = 0, rejected = 0;
+      while (s.phase !== 'ended' && steps++ < 5000) {
+        // 观战者每一步都试图操作（座位号 -1 / 4）
+        for (const seat of [-1, 4]) if (!applyAction(s, seat, { type: 'roll', zone: 1 }).ok) rejected++;
+        s = ok(s, actorOf(s), botAction(s, actorOf(s))).state;
+      }
+      expect(s.phase).toBe('ended');
+      expect(s.winner).not.toBeNull();
+      expect(rejected).toBeGreaterThan(0);
+      expect(s).toEqual(clean);
+    }
+  });
+
+  it('观战席上限在 config.ts 里（提案值）', () => {
+    expect(SPECTATE.maxSpectators).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.3 阶段3：快速匹配队列', () => {
+  const T = MATCH.timeoutMs;
+
+  it('凑满 4 人立即开局，无机器人', () => {
+    const q = new MatchQueue();
+    q.join('a', 0); q.join('b', 10); q.join('c', 20);
+    expect(q.poll(30).kind).toBe('waiting');
+    q.join('d', 40);
+    const d = q.poll(50);
+    expect(d).toEqual({ kind: 'start', members: ['a', 'b', 'c', 'd'], bots: 0, reason: 'full' });
+    expect(q.size).toBe(0);
+    expect(q.poll(60).kind).toBe('idle');
+  });
+
+  it('超时后机器人补位：按队首入队时间起算，补足到 4 人', () => {
+    const q = new MatchQueue();
+    q.join('a', 1000); q.join('b', 5000);
+    const w = q.poll(1000 + T - 1);
+    expect(w).toMatchObject({ kind: 'waiting', waiting: 2, size: 4, deadline: 1000 + T });
+    const d = q.poll(1000 + T);
+    expect(d).toEqual({ kind: 'start', members: ['a', 'b'], bots: 2, reason: 'timeout' });
+    expect(q.size).toBe(0);
+    // 单人也能超时补位 3 个机器人
+    const solo = new MatchQueue();
+    solo.join('x', 0);
+    expect(solo.poll(T)).toEqual({ kind: 'start', members: ['x'], bots: 3, reason: 'timeout' });
+  });
+
+  it('匹配中可取消：取消后不再被拉入开局，队首变化后超时重新起算，清空后回到 idle', () => {
+    const q = new MatchQueue();
+    q.join('a', 0); q.join('b', 8000);
+    expect(q.cancel('a')).toBe(true);
+    expect(q.cancel('a')).toBe(false);
+    // a 走了，b 成为队首，超时从 b 的入队时间起算
+    expect(q.poll(T)).toMatchObject({ kind: 'waiting', waiting: 1, deadline: 8000 + T });
+    expect(q.cancel('b')).toBe(true);
+    expect(q.poll(T * 10).kind).toBe('idle');
+    // 重复入队只算一次
+    q.join('c', 0); q.join('c', 5);
+    expect(q.size).toBe(1);
+  });
+
+  it('peek 不改队列，poll 才出队；真人数不足 minHumans 时不超时开局；超过 4 人只取前 4 个', () => {
+    const q = new MatchQueue();
+    q.join('a', 0);
+    expect(q.peek(T).kind).toBe('start');
+    expect(q.size).toBe(1);
+    const strict = new MatchQueue({ minHumans: 2 });
+    strict.join('a', 0);
+    expect(strict.poll(T * 2).kind).toBe('waiting');
+    strict.join('b', 1);
+    expect(strict.poll(T * 2)).toMatchObject({ kind: 'start', bots: 2, reason: 'timeout' });
+    const big = new MatchQueue();
+    ['a', 'b', 'c', 'd', 'e'].forEach((id, i) => big.join(id, i));
+    expect(big.poll(10)).toMatchObject({ kind: 'start', members: ['a', 'b', 'c', 'd'], bots: 0 });
+    expect(big.size).toBe(1);
+  });
+
+  it('匹配成局后用补位的机器人开局，整局可正常打完', () => {
+    const q = new MatchQueue();
+    q.join('p1', 0);
+    const d = q.poll(T);
+    if (d.kind !== 'start') throw new Error('应当开局');
+    const seats = SEATS.map((x, i) => ({ ...x, isBot: i >= d.members.length }));
+    let s = createGame({ seed: 77, seats });
+    let n = 0;
+    while (s.phase !== 'ended' && n++ < 5000) s = ok(s, actorOf(s), botAction(s, actorOf(s))).state;
+    expect(s.phase).toBe('ended');
+    expect(seats.filter((x) => x.isBot)).toHaveLength(d.bots);
   });
 });
