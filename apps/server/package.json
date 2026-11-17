@@ -9,7 +9,9 @@
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --alias:@dt/shared=../../packages/shared/src/index.ts --outfile=dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "tsx scripts/smoke.ts",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --alias:@dt/shared=../../packages/shared/src/index.ts --banner:js=\"import{createRequire as __cr}from'module';const require=__cr(import.meta.url);\" --outfile=dist/bundle.mjs"
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --alias:@dt/shared=../../packages/shared/src/index.ts --banner:js=\"import{createRequire as __cr}from'module';const require=__cr(import.meta.url);\" --outfile=dist/bundle.mjs",
+    "stress": "tsx scripts/stress.ts",
+    "stress:online": "tsx scripts/stress-online.ts"
   },
   "dependencies": {
     "@colyseus/core": "^0.18.0",

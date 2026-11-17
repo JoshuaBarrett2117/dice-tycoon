@@ -1,14 +1,19 @@
 {
   "name": "dice-tycoon",
   "private": true,
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "《掷富天下》网页大富翁 —— 单仓（规则引擎 / 对战服 / 网页客户端）",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w @dt/client",
     "dev:server": "npm run dev -w @dt/server",
     "build": "npm run build -w @dt/shared && npm run build -w @dt/server && npm run build -w @dt/client",
     "test": "npm run test -w @dt/shared",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "stress": "npm run stress -w @dt/server",
+    "stress:online": "npm run stress:online -w @dt/server"
   }
 }

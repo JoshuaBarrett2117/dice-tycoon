@@ -1259,3 +1259,49 @@ describe('v0.8 道具与角色后续批次', () => {
   });
 });
 const CHARACTERS_ROCK = CHARACTERS.rock;
+
+// ───────────────────────── v1.0 风控 / 埋点 ─────────────────────────
+import { ActionGuard, RISK, buildMatchSummary, checkReplayConsistency, classifyReject } from '../src';
+
+describe('v1.0 风控', () => {
+  it('ActionGuard：重复、超快、超速被拒，正常放行', () => {
+    const g = new ActionGuard();
+    const roll = { type: 'roll', zone: 1 } as const;
+    expect(g.check('s', roll, 1000)).toBeNull();
+    expect(g.check('s', roll, 1000 + RISK.duplicateMs - 1)).toBe('duplicate');
+    expect(g.check('s', { type: 'choose', option: 0 }, 1000 + RISK.minIntervalMs - 1)).toBe('too_fast');
+    expect(g.check('s', { type: 'choose', option: 0 }, 1000 + RISK.minIntervalMs + 1)).toBeNull();
+    expect(g.check('other', roll, 1001)).toBeNull(); // 会话互不影响
+    const h = new ActionGuard();
+    let t = 0, limited = 0;
+    for (let i = 0; i < 30; i++) { t += RISK.minIntervalMs + 5; if (h.check('x', { type: 'choose', option: i }, t) === 'rate_limited') limited++; }
+    expect(limited).toBeGreaterThan(0);
+  });
+  it('classifyReject：非行动座位 / 非法 / 已结束', () => {
+    const s = createGame({ seed: 5, seats: SEATS });
+    expect(classifyReject(s, (actorOf(s) + 1) % 4)).toBe('out_of_turn');
+    expect(classifyReject(s, actorOf(s))).toBe('illegal');
+    expect(classifyReject({ ...s, phase: 'ended' }, 0)).toBe('ended');
+  });
+  it('回放一致性抽查：一致通过，被篡改则报不一致', () => {
+    const cfg = { seed: 77, seats: SEATS.map((x) => ({ ...x, isBot: true })) };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    while (s.phase !== 'ended') { const w = actorOf(s); const a = botAction(s, w); s = ok(s, w, a).state; rec.push(w, a); }
+    const r = rec.toRecord(s);
+    expect(checkReplayConsistency(r, s).ok).toBe(true);
+    expect(checkReplayConsistency({ ...r, seed: r.seed + 1 }, s).ok).toBe(false);
+    expect(checkReplayConsistency({ ...r, actions: r.actions.slice(0, -3) }, s).ok).toBe(false);
+  });
+  it('终局埋点摘要不含 accountId', () => {
+    const seats = SEATS.map((x) => ({ ...x, isBot: true, accountId: 'secret-account' }));
+    const cfg = { seed: 3, seats };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    while (s.phase !== 'ended') { const w = actorOf(s); const a = botAction(s, w); s = ok(s, w, a).state; rec.push(w, a); }
+    const sum = buildMatchSummary(rec.toRecord(s), s);
+    expect(JSON.stringify(sum)).not.toContain('secret-account');
+    expect(sum.ranking).toHaveLength(4);
+    expect(sum.steps).toBe(rec.toRecord().actions.length);
+  });
+});

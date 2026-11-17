@@ -21,6 +21,13 @@ const MIME: Record<string, string> = {
 /** GET /api/rooms：观战列表（跨域放开，开发模式下客户端在另一个端口） */
 function serveApi(req: IncomingMessage, res: ServerResponse): boolean {
   const path = (req.url || '/').split('?')[0];
+  if (path === '/api/stats' && req.method === 'GET') {
+    // 压测用：进程内存与房间数（不含任何玩家数据）
+    const m = process.memoryUsage();
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ rssMB: Math.round(m.rss / 1048576), heapMB: Math.round(m.heapUsed / 1048576), rooms: registry.list().length, uptimeS: Math.round(process.uptime()) }));
+    return true;
+  }
   if (path !== '/api/rooms' || (req.method !== 'GET' && req.method !== 'OPTIONS')) return false;
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, OPTIONS', 'access-control-allow-headers': 'content-type' };
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return true; }

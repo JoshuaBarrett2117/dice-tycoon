@@ -1,10 +1,11 @@
 import { Room, type Client } from '@colyseus/core';
 import {
   CHARACTERS, CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
-  BOT_DEFAULT_DIFFICULTY, MatchQueue, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
+  ActionGuard, BOT_DEFAULT_DIFFICULTY, MatchQueue, buildMatchSummary, checkReplayConsistency, classifyReject, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
 } from '@dt/shared';
 import { registry } from '../registry';
+import { track } from '../telemetry';
 
 const BOT_NAMES = ['阿柚', '老周', '阿星', '小麦', '大熊'];
 const RECONNECT_SECONDS = 30;
@@ -29,6 +30,7 @@ export class MatchRoom extends Room {
   private recorder: ReplayRecorder | null = null;
   /** sessionId → 透传的 accountId（只携带，不校验） */
   private accounts = new Map<string, string>();
+  private guard = new ActionGuard(SPEED);
   private deadline: number | null = null;
   private timer: { clear(): void } | null = null;
   /** 观战者的 sessionId（不在 seats 里） */
@@ -166,25 +168,52 @@ export class MatchRoom extends Room {
     this.recorder = new ReplayRecorder(cfg);
     this.clients.forEach((c) => c.send('seat', { seat: this.seatOf(c.sessionId) }));
     this.broadcastLobby();
+    track('match_start', this.roomId, { seed, humans: this.seats.filter((x) => !x.isBot).length, bots: this.seats.filter((x) => x.isBot).length, quick: !!this.queue });
     this.publish(openingEvents(this.game));
   }
 
   // ───────────────────────── 对局 ─────────────────────────
   private handleAction(client: Client, action: Action) {
     if (!this.game) return;
-    if (this.spectators.has(client.sessionId)) { client.send('error', { message: '观战者不能操作' }); return; }
+    if (this.spectators.has(client.sessionId)) { this.reject('spectator', -1, action); client.send('error', { message: '观战者不能操作' }); return; }
     const seat = this.seatOf(client.sessionId);
-    if (seat < 0) { client.send('error', { message: '你不在本局座位上' }); return; }
+    if (seat < 0) { this.reject('not_seated', -1, action); client.send('error', { message: '你不在本局座位上' }); return; }
+    const why = this.guard.check(client.sessionId, action, Date.now());
+    if (why) { this.reject(why, seat, action); return; } // 重复/超速：静默忽略，只记日志
     this.apply(seat, action, client);
   }
 
   private apply(seat: number, action: Action, client?: Client) {
     if (!this.game) return;
     const r = applyAction(this.game, seat, action);
-    if (!r.ok) { client?.send('error', { message: r.error }); return; }
+    if (!r.ok) {
+      if (client) this.reject(classifyReject(this.game, seat), seat, action, r.error);
+      client?.send('error', { message: r.error });
+      return;
+    }
     this.recorder?.push(seat, action);
     this.game = r.state;
+    if (this.game.phase === 'ended') this.onEnded();
     this.publish(r.events);
+  }
+
+  /** 风控拒绝：只记日志，不中断对局 */
+  private reject(reason: string, seat: number, action: Action, detail?: string) {
+    track('risk_reject', this.roomId, { reason, seat, actionType: (action as { type?: unknown })?.type, ...(detail ? { detail } : {}) });
+  }
+
+  /** 终局：埋点摘要 + 回放一致性抽查（异常只记日志） */
+  private onEnded() {
+    if (!this.game || !this.recorder) return;
+    try {
+      const rec = this.recorder.toRecord(this.game);
+      track('match_end', this.roomId, buildMatchSummary(rec, this.game));
+      const c = checkReplayConsistency(rec, this.game);
+      track('replay_check', this.roomId, { ok: c.ok, ...(c.reason ? { reason: c.reason } : {}) });
+      if (!c.ok) console.error(`[risk] 回放不一致 room=${this.roomId}: ${c.reason}`);
+    } catch (e) {
+      track('anomaly', this.roomId, { message: (e as Error).message });
+    }
   }
 
   private publish(events: GameEvent[]) {

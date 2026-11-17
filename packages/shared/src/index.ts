@@ -11,3 +11,4 @@ export * from './replay';
 export * from './matchmaking';
 export * from './profile';
 export * from './quests';
+export * from './risk';
