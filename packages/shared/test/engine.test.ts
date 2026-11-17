@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
   MATCH, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
-  type GameState, type SeatConfig,
+  type BotDifficulty, type GameState, type SeatConfig,
 } from '../src';
 
 const SEATS: SeatConfig[] = [
@@ -983,5 +983,76 @@ describe('v0.4：本地档案与对局历史', () => {
     expect(e.seats).toHaveLength(4);
     expect(e.won).toBe(rc.result!.winner === 0);
     expect(entryFromRecord(rc, 'nobody', 'online', 3)!.rank).toBe(0);
+  });
+});
+
+describe('v0.5 机器人难度分级', () => {
+  const DIFFS: BotDifficulty[] = ['easy', 'normal', 'hard'];
+  const withDiff = (d: BotDifficulty, seat: number): SeatConfig[] => SEATS.map((x, i) => ({ ...x, isBot: true, ...(i === seat ? { difficulty: d } : {}) }));
+
+  it('同一局面下三档决策不同（买地 / 道具 / 抵押）', () => {
+    const base = () => createGame({ seed: 7, seats: SEATS.map((x) => ({ ...x, isBot: true })) });
+    // 买地：有 100 现金买 80 价地，简单档储备低；困难档储备高
+    const decide = (d: BotDifficulty, f: (s: GameState) => void) => { const s = base(); s.seats[0].difficulty = d; f(s); return JSON.stringify(botAction(s, 0)); };
+    // 抵押：前方有大额过路费，现金处于 threat*0.5..1.4 之间时 简单不抵押、困难抵押
+    const mort = (s: GameState) => {
+      const i = 5; s.tiles[i].owner = 1; s.tiles[i].lv = 3; s.seats[0].pos = i - 3;
+      const mine = BOARD.findIndex((d, k) => d.kind === 'city' && k !== i && k > 20); s.tiles[mine].owner = 0;
+      const th = tollOf(s, i); s.seats[0].cash = Math.floor(th * 1.2);
+    };
+    const m = DIFFS.map((d) => decide(d, mort));
+    expect(m[0]).not.toBe(m[2]);
+    expect(m[2]).toContain('mortgage');
+    // 道具：持有 shield 且现金低，简单档大概率不用（概率门），普通/困难使用
+    const item = (s: GameState) => { s.seats[0].items = ['shield'] as never; s.seats[0].cash = 100; };
+    const used = (d: BotDifficulty) => { let n = 0; for (let k = 0; k < 40; k++) { const s = base(); s.seq = k; s.seats[0].difficulty = d; item(s); if (botAction(s, 0).type === 'useItem') n++; } return n; };
+    expect(used('normal')).toBe(40);
+    expect(used('hard')).toBe(40);
+    expect(used('easy')).toBeLessThan(25);
+    // 买地：简单档有概率手滑放弃
+    const buys = (d: BotDifficulty) => { let n = 0; for (let k = 0; k < 40; k++) { const s = base(); s.seats[0].difficulty = d; s.seq = k; s.pending = { kind: 'buy', tile: 1, options: [{ cost: 60, value: 1 }] } as never; s.phase = 'pending' as never; const a = botAction(s, 0); if (a.type === 'choose' && a.option === 0) n++; } return n; };
+    expect(buys('normal')).toBe(40);
+    expect(buys('easy')).toBeLessThan(40);
+  });
+
+  it('机器人纯函数：同局面重复调用结果一致且不改状态', () => {
+    const s = createGame({ seed: 3, seats: withDiff('easy', 0) });
+    const before = JSON.stringify(s);
+    const a = JSON.stringify(botAction(s, actorOf(s)));
+    expect(JSON.stringify(botAction(s, actorOf(s)))).toBe(a);
+    expect(JSON.stringify(s)).toBe(before);
+  });
+
+  it('同 seed 下各档各打 N 局：困难 > 普通 > 简单（平均名次）', () => {
+    const N = 40;
+    const avg: Record<string, number> = {};
+    for (const d of DIFFS) {
+      let sum = 0;
+      for (let seed = 1; seed <= N; seed++) {
+        // 被测档位轮流坐 4 个座位，其余 3 个为普通
+        const seat = seed % 4;
+        const seats = SEATS.map((x, i) => ({ ...x, isBot: true, difficulty: (i === seat ? d : 'normal') as BotDifficulty }));
+        let s = createGame({ seed, seats });
+        for (let n = 0; s.phase !== 'ended' && n < 8000; n++) s = ok(s, actorOf(s), botAction(s, actorOf(s))).state;
+        const order = s.seats.map((p, i) => ({ i, a: p.bankrupt ? -1 : totalAssets(s, i) })).sort((x, y) => y.a - x.a);
+        sum += order.findIndex((o) => o.i === seat) + 1;
+      }
+      avg[d] = sum / N;
+    }
+    console.log('平均名次(越小越好)', avg);
+    expect(avg.hard).toBeLessThan(avg.easy);
+    expect(avg.easy - avg.hard).toBeGreaterThanOrEqual(0.4);
+    expect(avg.hard).toBeLessThanOrEqual(avg.normal);
+  });
+
+  it('含难度机器人的对局可回放且一致', () => {
+    const seats = SEATS.map((x, i) => ({ ...x, isBot: true, difficulty: DIFFS[i % 3] }));
+    const cfg = { seed: 11, seats };
+    const rec = new ReplayRecorder(cfg);
+    let s = createGame(cfg);
+    for (let n = 0; s.phase !== 'ended' && n < 8000; n++) { const w = actorOf(s), a = botAction(s, w); rec.push(w, a); s = ok(s, w, a).state; }
+    const record = JSON.parse(JSON.stringify(rec.toRecord(s)));
+    expect(record.seats.map((x: SeatConfig) => x.difficulty)).toEqual(['easy', 'normal', 'hard', 'easy']);
+    expect(replayGame(record).state).toEqual(s);
   });
 });

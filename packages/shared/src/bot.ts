@@ -1,24 +1,35 @@
 /**
  * 机器人 / 托管 AI。服务端用它补位和代替掉线玩家，客户端单机模式同样调用。
- * 策略刻意简单、可读，后续可替换为按难度分级的版本。
+ * 策略刻意简单、可读；v0.5 起按难度（简单/普通/困难）参数化（BOT_LEVELS）。
+ * 决策均为纯函数：「随机」只用对局状态的确定性哈希，不调用 Math.random、不改状态。
  */
 import { BOARD, BOARD_SIZE, GROUPS, TOURS } from './board';
-import { ZONES } from './config';
+import { BOT_DEFAULT_DIFFICULTY, BOT_LEVELS, ZONES } from './config';
 import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf } from './engine';
 import type { Action, GameState } from './types';
 
+function lv(s: GameState, seat: number) { return BOT_LEVELS[s.seats[seat].difficulty ?? BOT_DEFAULT_DIFFICULTY]; }
+
+/** 由局面派生的 [0,1) 确定性伪随机（同局面同结果，保证机器人是纯函数、可回放） */
+function chance(s: GameState, seat: number, salt: number): number {
+  const p = s.seats[seat];
+  let h = (s.seq * 2654435761 + p.pos * 40503 + p.cash * 97 + seat * 7919 + salt * 104729 + s.rng) >>> 0;
+  h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0; h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
 /** 评估落在某格的好坏（越大越好） */
 function tileScore(s: GameState, seat: number, i: number): number {
-  const d = BOARD[i], t = s.tiles[i], cash = s.seats[seat].cash;
+  const d = BOARD[i], t = s.tiles[i], cash = s.seats[seat].cash, L = lv(s, seat);
   if (d.kind === 'city' || d.kind === 'tour') {
     if (t.owner == null) {
       let v = d.price <= cash ? 3 : 0;
-      if (d.group && GROUPS[d.group].some((x) => s.tiles[x].owner === seat)) v += 2;
-      if (d.kind === 'tour' && TOURS.some((x) => s.tiles[x].owner === seat)) v += 2;
+      if (d.group && GROUPS[d.group].some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
+      if (d.kind === 'tour' && TOURS.some((x) => s.tiles[x].owner === seat)) v += 2 * L.group;
       return v;
     }
     if (t.owner === seat) return t.lv < 4 ? 2 : 0.5;
-    return -tollOf(s, i) / 15;
+    return (-tollOf(s, i) * L.toll) / 15;
   }
   if (d.kind === 'card') return 0.8;
   if (d.kind === 'tax') return -Math.min(3, cash / 100);
@@ -30,6 +41,7 @@ function tileScore(s: GameState, seat: number, i: number): number {
 
 export function chooseZone(s: GameState, seat: number): number {
   const pos = s.seats[seat].pos;
+  if (chance(s, seat, 1) < lv(s, seat).noise) return Math.floor(chance(s, seat, 2) * ZONES.length);
   let best = 1, bestV = -Infinity;
   ZONES.forEach((z, k) => {
     let v = 0;
@@ -44,6 +56,8 @@ export function chooseZone(s: GameState, seat: number): number {
 export function preRollAction(s: GameState, seat: number): Action | null {
   const p = s.seats[seat];
   const cash = p.cash;
+  const L = lv(s, seat);
+  if (L.itemUse < 1 && chance(s, seat, 3) >= L.itemUse) return null;
   const valid = (a: Action) => (applyAction(s, seat, a).ok ? a : null);
   const best = (item: 'dice' | 'teleport') => {
     let tgt = -1, v = 2.9;
@@ -77,7 +91,7 @@ export function preRollAction(s: GameState, seat: number): Action | null {
     // 小狸只在前方有可收购的他人城市时才用，其余角色冷却好了就用
     const ahead = (i: number) => { const d = (i - p.pos + BOARD_SIZE) % BOARD_SIZE; return d >= 2 && d <= 12; };
     const liOk = s.tiles.some((t, i) => t.owner != null && t.owner !== seat && t.lv < 4 && BOARD[i].kind === 'city' && ahead(i)) && cash >= 120;
-    if (p.charId !== 'li' || liOk) tries.push({ type: 'useSkill' });
+    if ((p.charId !== 'li' || liOk) && chance(s, seat, 4) < L.skillUse) tries.push({ type: 'useSkill' });
   }
   for (const a of tries) if (a && valid(a)) return a;
   return null;
@@ -101,7 +115,7 @@ function tollThreat(s: GameState, seat: number): number {
  * 抵押条件 cash < threat 与赎回条件 cash - cost >= threat 互斥，同一回合不会来回振荡。
  */
 export function mortgageDecision(s: GameState, seat: number): Action | null {
-  const p = s.seats[seat], threat = tollThreat(s, seat);
+  const p = s.seats[seat], L = lv(s, seat), threat = tollThreat(s, seat) * L.mortgageAt;
   const mine = s.tiles.map((t, i) => (t.owner === seat ? i : -1)).filter((i) => i >= 0);
   if (threat > 0 && p.cash < threat) {
     const c = mine.filter((i) => !s.tiles[i].mortgaged)
@@ -111,7 +125,7 @@ export function mortgageDecision(s: GameState, seat: number): Action | null {
   }
   const r = mine.filter((i) => s.tiles[i].mortgaged)
     .sort((a, b) => redeemCost(s, a) - redeemCost(s, b))
-    .find((i) => p.cash - redeemCost(s, i) >= Math.max(150, threat));
+    .find((i) => p.cash - redeemCost(s, i) >= Math.max(L.redeemMin, threat));
   return r !== undefined ? { type: 'redeem', tile: r } : null;
 }
 
@@ -121,7 +135,8 @@ function auctionLimit(s: GameState, seat: number, tile: number): number {
   let own = 0;
   if (d.kind === 'city' && d.group) own = GROUPS[d.group].filter((x) => s.tiles[x].owner === seat).length;
   else if (d.kind === 'tour') own = TOURS.filter((x) => s.tiles[x].owner === seat).length;
-  return Math.round(d.price * (0.9 + 0.35 * own));
+  const L = lv(s, seat);
+  return Math.round(d.price * (L.auctionBase + L.auctionGroup * own));
 }
 
 export function botAction(s: GameState, seat: number): Action {
@@ -132,7 +147,8 @@ export function botAction(s: GameState, seat: number): Action {
   }
   const p = s.pending!;
   const cash = s.seats[seat].cash;
-  const reserve = Math.max(40, cash * 0.25);
+  const L = lv(s, seat);
+  const reserve = Math.max(L.reserveMin, cash * L.reserveFrac);
   switch (p.kind) {
     case 'item': return { type: 'choose', option: -1 };
     case 'auction': {
@@ -143,6 +159,7 @@ export function botAction(s: GameState, seat: number): Action {
     case 'upgrade': {
       // 选能负担的最高档，同时保留一部分现金应对过路费
       let pickIdx = -1;
+      if (L.noise > 0 && chance(s, seat, 5) < L.noise) return { type: 'choose', option: -1 }; // 简单档：偶尔手滑放弃
       p.options.forEach((o, k) => { if (cash - o.cost >= reserve || (k === 0 && cash - o.cost >= 10)) pickIdx = k; });
       return { type: 'choose', option: pickIdx };
     }

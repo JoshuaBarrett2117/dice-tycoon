@@ -1,7 +1,7 @@
 import { Room, type Client } from '@colyseus/core';
 import {
   CHARACTERS, CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
-  MatchQueue, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
+  BOT_DEFAULT_DIFFICULTY, MatchQueue, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
 } from '@dt/shared';
 import { registry } from '../registry';
@@ -156,6 +156,7 @@ export class MatchRoom extends Room {
       seed,
       seats: this.seats.map((s, i) => ({
         id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot,
+        ...(s.isBot ? { difficulty: BOT_DEFAULT_DIFFICULTY } : {}),
         ...(s.sessionId && this.accounts.has(s.sessionId) ? { accountId: this.accounts.get(s.sessionId) } : {}),
       })),
     };

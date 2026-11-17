@@ -1,5 +1,5 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, computeStats, entryFromRecord, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { CHARACTERS, CHAR_IDS, computeStats, entryFromRecord, type BotDifficulty, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
 import { deleteHistory, loadHistory, loadProfile, loadReplay, pushHistory, saveProfile } from './core/store';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
@@ -27,6 +27,7 @@ const prefs = {
   name: profile.name,
   charId: profile.charId,
   server: localStorage.getItem('dt.server') || DEFAULT_SERVER,
+  difficulty: ((): BotDifficulty => { const v = localStorage.getItem('dt.diff'); return v === 'easy' || v === 'hard' ? v : 'normal'; })(),
 };
 const accountId = profile.id;
 
@@ -58,6 +59,7 @@ function showMenu(msg = '') {
         <button class="ch ${c === prefs.charId ? 'on' : ''}" data-c="${c}" style="--c:${CHARACTERS[c].color}">
           <img src="${charUrl(c)}" alt=""><b>${CHARACTERS[c].name}</b><small>${CHARACTERS[c].skill}</small>
         </button>`).join('')}</div>
+      <label>单机机器人难度 <select id="diff">${(['easy', 'normal', 'hard'] as const).map((d) => `<option value="${d}" ${d === prefs.difficulty ? 'selected' : ''}>${{ easy: '简单', normal: '普通', hard: '困难' }[d]}</option>`).join('')}</select></label>
       <div class="btns">
         <button class="big gold" id="solo">单机对战<small>你 vs 3 个机器人</small></button>
         <button class="big blue" id="create">创建房间<small>好友联机，空位机器人补齐</small></button>
@@ -76,6 +78,8 @@ function showMenu(msg = '') {
   const save = () => {
     prefs.name = (m.querySelector<HTMLInputElement>('#nm')!.value.trim() || prefs.name).slice(0, 12);
     prefs.server = m.querySelector<HTMLInputElement>('#srv')!.value.trim() || DEFAULT_SERVER;
+    prefs.difficulty = m.querySelector<HTMLSelectElement>('#diff')!.value as BotDifficulty;
+    try { localStorage.setItem('dt.diff', prefs.difficulty); } catch { /* ignore */ }
     profile.name = prefs.name; profile.charId = prefs.charId; saveProfile(profile); try { localStorage.setItem('dt.server', prefs.server); } catch { /* ignore */ }
     AU.unlock();
   };
@@ -136,9 +140,9 @@ function startSolo() {
   const others = CHAR_IDS.filter((c) => c !== prefs.charId);
   const seats: SeatConfig[] = [
     { id: 'me', name: prefs.name, charId: prefs.charId, accountId },
-    { id: 'bot1', name: '阿柚', charId: others[0], isBot: true },
-    { id: 'bot2', name: '老周', charId: others[1], isBot: true },
-    { id: 'bot3', name: '阿星', charId: others[2], isBot: true },
+    { id: 'bot1', name: '阿柚', charId: others[0], isBot: true, difficulty: prefs.difficulty },
+    { id: 'bot2', name: '老周', charId: others[1], isBot: true, difficulty: prefs.difficulty },
+    { id: 'bot3', name: '阿星', charId: others[2], isBot: true, difficulty: prefs.difficulty },
   ];
   void startGame(new LocalSource(seats), 'solo');
 }

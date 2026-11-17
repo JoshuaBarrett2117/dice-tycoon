@@ -10,6 +10,8 @@ export interface PlayerState {
   name: string;
   charId: CharId;
   isBot: boolean;
+  /** 机器人难度（缺省 = 普通；只影响 bot.ts 的决策，不进规则） */
+  difficulty?: BotDifficulty;
   /** 透传的账号标识（引擎不校验、不参与规则） */
   accountId?: string;
   cash: number;
@@ -178,5 +180,6 @@ export interface ApplyErr { ok: false; error: string }
 export type ApplyResult = ApplyOk | ApplyErr;
 
 /** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
-export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string }
+export type BotDifficulty = 'easy' | 'normal' | 'hard';
+export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string; difficulty?: BotDifficulty }
 export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number }

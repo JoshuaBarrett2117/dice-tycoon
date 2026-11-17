@@ -163,3 +163,11 @@ export const PROFILE = {
   nameMax: 12,
   keys: { profile: 'dt:profile:v1', history: 'dt:history:v1', replayPrefix: 'dt:replay:v1:' },
 } as const;
+
+/** 机器人难度分级（v0.5，数值均为提案值）。normal 与 v0.4 之前的唯一策略完全一致 */
+export const BOT_LEVELS = {
+  easy:   { noise: 0.3, itemUse: 0.25, group: 0, toll: 0.4, reserveFrac: 0.08, reserveMin: 20, auctionBase: 0.7, auctionGroup: 0, mortgageAt: 0.5, redeemMin: 400, skillUse: 0.4 },
+  normal: { noise: 0,   itemUse: 1,    group: 1, toll: 1,   reserveFrac: 0.25, reserveMin: 40, auctionBase: 0.9, auctionGroup: 0.35, mortgageAt: 1, redeemMin: 150, skillUse: 1 },
+  hard:   { noise: 0,   itemUse: 1,    group: 2, toll: 1.6, reserveFrac: 0.15, reserveMin: 60, auctionBase: 1.0, auctionGroup: 0.6, mortgageAt: 1.4, redeemMin: 100, skillUse: 1 },
+} as const;
+export const BOT_DEFAULT_DIFFICULTY = 'normal' as const;
