@@ -10,6 +10,8 @@ export interface PlayerState {
   name: string;
   charId: CharId;
   isBot: boolean;
+  /** 透传的账号标识（引擎不校验、不参与规则） */
+  accountId?: string;
   cash: number;
   pos: number;
   /** >0 表示在无人岛上，剩余停留回合 */
@@ -144,5 +146,6 @@ export interface ApplyOk { ok: true; state: GameState; events: GameEvent[] }
 export interface ApplyErr { ok: false; error: string }
 export type ApplyResult = ApplyOk | ApplyErr;
 
-export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean }
+/** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
+export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string }
 export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number }

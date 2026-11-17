@@ -4,10 +4,12 @@
  */
 import type { CharId } from './characters';
 import type { Action, GameEvent, GameState } from './types';
+import type { GameRecord } from './replay';
 
 export const ROOM_NAME = 'match';
 
-export interface JoinOptions { name: string; charId: CharId }
+/** accountId 为预留字段：对战服只携带、不校验（本期无登录体系） */
+export interface JoinOptions { name: string; charId: CharId; accountId?: string }
 
 export interface LobbySeat { sessionId: string | null; name: string; charId: CharId; isBot: boolean; ready: boolean; connected: boolean }
 
@@ -20,12 +22,16 @@ export interface ServerMessages {
   /** 权威快照 + 自上一快照以来的事件 */
   sync: { state: GameState; events: GameEvent[]; deadline: number | null };
   error: { message: string };
+  /** 回放导出结果（响应 exportReplay） */
+  replay: GameRecord;
 }
 
 /** 客户端 → 服务端 */
 export interface ClientMessages {
   start: Record<string, never>;
   action: Action;
+  /** 请求导出本局回放 JSON（对局开始后可用） */
+  exportReplay: Record<string, never>;
 }
 
 /** 回合操作时限（毫秒），超时由服务端托管 */

@@ -7,3 +7,4 @@ export * from './engine';
 export * from './bot';
 export * from './protocol';
 export * from './timing';
+export * from './replay';

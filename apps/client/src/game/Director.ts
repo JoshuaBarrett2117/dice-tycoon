@@ -468,7 +468,13 @@ export class Director {
     })).sort((a, b) => b.w - a.w || b.value - a.value);
     const meWin = winner === this.me;
     if (meWin) AU.play('win'); else AU.play('miss');
-    this.hud.showResult(meWin ? '大获全胜' : `${s.seats[winner].name} 获胜`, WIN_TEXT[reason], rows, this.onRestart);
+    this.hud.showResult(meWin ? '大获全胜' : `${s.seats[winner].name} 获胜`, WIN_TEXT[reason], rows, this.onRestart, async () => {
+      const rec = await this.src.exportReplay();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = `dice-tycoon-replay-${rec.seed}.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    });
   }
 }
 

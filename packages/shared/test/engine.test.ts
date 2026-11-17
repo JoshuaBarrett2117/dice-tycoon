@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, takeoverCost, tollOf,
+  ReplayRecorder, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, replayGame, takeoverCost, tollOf,
   type GameState, type SeatConfig,
 } from '../src';
 
@@ -505,5 +505,51 @@ describe('v0.2 阶段2：全局事件 / 色组加成 / 机会卡', () => {
     expect(m.globalEvent).toBeNull();
     expect(m.seats[0].doubleSalary).toBe(false);
     expect(() => migrateState({ version: 9 })).toThrow();
+  });
+});
+
+describe('v0.2 阶段3：回放导出与 accountId 透传', () => {
+  const record = (seed: number, seats: SeatConfig[]) => {
+    const cfg = { seed, seats };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    while (s.phase !== 'ended') {
+      const a = botAction(s, s.turn);
+      const r = ok(s, s.turn, a);
+      rec.push(s.turn, a);
+      s = r.state;
+    }
+    return { final: s, rec: rec.toRecord(s) };
+  };
+
+  it('重放同一操作序列得到与原局完全一致的最终 GameState', () => {
+    for (const seed of [3, 42, 777]) {
+      const { final, rec } = record(seed, SEATS.map((x) => ({ ...x, isBot: true })));
+      // 经 JSON 往返，确保导出文件可独立重放
+      const parsed = JSON.parse(JSON.stringify(rec));
+      const re = replayGame(parsed);
+      expect(re.state).toEqual(final);
+      expect(re.state.seq).toBe(rec.result!.seq);
+      expect(rec.result!.winner).toBe(final.winner);
+      expect(re.events.some((e) => e.t === 'end')).toBe(true);
+    }
+  });
+
+  it('被篡改的操作序列在重放时被拒绝', () => {
+    const { rec } = record(5, SEATS.map((x) => ({ ...x, isBot: true })));
+    rec.actions[0] = { seat: 3, action: { type: 'roll', zone: 0 } };
+    expect(() => replayGame(rec)).toThrow();
+    expect(() => replayGame({ ...rec, format: 'x' as never })).toThrow();
+  });
+
+  it('accountId 只透传：写入座位与回放记录，不影响规则结果', () => {
+    const withAcc = SEATS.map((x, i) => ({ ...x, isBot: true, accountId: `acc-${i}` }));
+    const a = record(9, withAcc), b = record(9, SEATS.map((x) => ({ ...x, isBot: true })));
+    expect(a.final.seats.map((p) => p.accountId)).toEqual(['acc-0', 'acc-1', 'acc-2', 'acc-3']);
+    expect(b.final.seats.every((p) => p.accountId === undefined)).toBe(true);
+    expect(a.rec.seats.map((x) => x.accountId)).toEqual(['acc-0', 'acc-1', 'acc-2', 'acc-3']);
+    // 去掉 accountId 后两局完全一致
+    const strip = (s: GameState) => ({ ...s, seats: s.seats.map(({ accountId: _a, ...p }) => p) });
+    expect(strip(a.final)).toEqual(strip(b.final));
   });
 });

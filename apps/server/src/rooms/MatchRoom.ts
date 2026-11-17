@@ -1,7 +1,7 @@
 import { Room, type Client } from '@colyseus/core';
 import {
   CHARACTERS, CHAR_IDS, TURN_TIMEOUT_MS,
-  animBudget, applyAction, botAction, createGame, openingEvents,
+  ReplayRecorder, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat,
 } from '@dt/shared';
 
@@ -20,18 +20,26 @@ export class MatchRoom extends Room {
   private seats: LobbySeat[] = [];
   private host: string | null = null;
   private game: GameState | null = null;
+  private recorder: ReplayRecorder | null = null;
+  /** sessionId → 透传的 accountId（只携带，不校验） */
+  private accounts = new Map<string, string>();
   private deadline: number | null = null;
   private timer: { clear(): void } | null = null;
 
   onCreate() {
     this.onMessage('start', (client) => this.handleStart(client));
     this.onMessage('action', (client, action: Action) => this.handleAction(client, action));
+    this.onMessage('exportReplay', (client) => {
+      if (!this.recorder || !this.game) { client.send('error', { message: '对局尚未开始，无法导出回放' }); return; }
+      client.send('replay', this.recorder.toRecord(this.game));
+    });
   }
 
   onJoin(client: Client, options: Partial<JoinOptions> = {}) {
     if (this.game) throw new Error('对局已开始');
     const charId: CharId = CHAR_IDS.includes(options.charId as CharId) ? (options.charId as CharId) : 'jin';
     const name = String(options.name || '玩家').slice(0, 12);
+    if (typeof options.accountId === 'string' && options.accountId) this.accounts.set(client.sessionId, options.accountId.slice(0, 64));
     this.seats.push({ sessionId: client.sessionId, name, charId, isBot: false, ready: true, connected: true });
     if (!this.host) this.host = client.sessionId;
     this.broadcastLobby();
@@ -90,10 +98,15 @@ export class MatchRoom extends Room {
     }
     this.lock();
     const seed = (Math.random() * 2 ** 32) >>> 0;
-    this.game = createGame({
+    const cfg = {
       seed,
-      seats: this.seats.map((s, i) => ({ id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot })),
-    });
+      seats: this.seats.map((s, i) => ({
+        id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot,
+        ...(s.sessionId && this.accounts.has(s.sessionId) ? { accountId: this.accounts.get(s.sessionId) } : {}),
+      })),
+    };
+    this.game = createGame(cfg);
+    this.recorder = new ReplayRecorder(cfg);
     this.clients.forEach((c) => c.send('seat', { seat: this.seatOf(c.sessionId) }));
     this.broadcastLobby();
     this.publish(openingEvents(this.game));
@@ -110,6 +123,7 @@ export class MatchRoom extends Room {
     if (!this.game) return;
     const r = applyAction(this.game, seat, action);
     if (!r.ok) { client?.send('error', { message: r.error }); return; }
+    this.recorder?.push(seat, action);
     this.game = r.state;
     this.publish(r.events);
   }

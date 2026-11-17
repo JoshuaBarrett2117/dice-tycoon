@@ -21,7 +21,7 @@ const LV_NAME = ['空地', '别墅', '公寓', '酒店', '地标'];
 export function createGame(cfg: GameConfig): GameState {
   if (cfg.seats.length < 2 || cfg.seats.length > 4) throw new Error('需要 2–4 名玩家');
   const seats: PlayerState[] = cfg.seats.map((c, seat) => ({
-    seat, id: c.id, name: c.name, charId: c.charId, isBot: !!c.isBot,
+    seat, id: c.id, name: c.name, charId: c.charId, isBot: !!c.isBot, ...(c.accountId !== undefined ? { accountId: c.accountId } : {}),
     cash: RULES.startCash, pos: 0, islandTurns: 0, doubles: 0, bankrupt: false, flyNext: false, shield: false,
     items: [], skillCd: 0, doubleToll: false, wangToll: false, liDiscount: false, xingPerfect: false, forcedSum: null, doubleSalary: false,
   }));

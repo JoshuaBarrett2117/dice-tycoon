@@ -66,6 +66,41 @@ apps/client          Vite + PixiJS 8 客户端
 4 处观光地（过路费随持有数翻倍）、环球节庆（指定城市过路费 ×2）、环球航班（下回合飞往任意格）、机会卡 6 种、税务局、
 现金不足自动变卖、破产出局、三区独占 / 整排独占 / 观光地独占 / 只剩一人 / 20 回合后总资产最高 判胜。
 
+## 事件清单
+
+引擎每个合法操作都会输出事件流（`GameEvent`，见 `packages/shared/src/types.ts`），客户端据此播放动画，也是后续埋点的数据源。**事件类型名（`t` 字段）视为稳定接口，不随意改名**；新增事件只追加。
+
+| 事件 `t` | 含义 |
+|---|---|
+| `turn` | 轮到某玩家（带回合数） |
+| `roll` | 掷骰结果：蓄力区间、两颗骰子、是否命中区间 |
+| `move` | 棋子移动：路径、方式（`walk` 步行 / `fly` 航班或传送 / `warp` 被传走） |
+| `salary` | 经过起点领月薪（已含全局事件与双倍月薪） |
+| `doubles` / `island` / `islandStay` / `islandEscape` | 双数计数 / 进入无人岛 / 岛上停留 / 掷双数逃脱 |
+| `pay` | 支付：过路费 `toll`、税 `tax`、罚款 `fine`、收购 `takeover`、生日派对 `birthday` |
+| `shieldUsed` | 护盾抵消了一次过路费 |
+| `buy` / `upgrade` / `takeover` | 购买地产 / 升级（含免费升级）/ 收购 |
+| `sell` / `bankrupt` | 破产清算时变卖地产 / 玩家破产 |
+| `card` / `bonus` | 抽到机会卡（12 种）/ 获得现金 |
+| `festival` / `airport` | 环球节庆指定城市 / 踩到环球航班 |
+| `itemGained` / `itemUsed` | 获得道具 / 使用道具 |
+| `skillUsed` | 发动角色主动技能 |
+| `roadblockPlaced` / `roadblockHit` | 放置路障 / 路障拦停了某玩家 |
+| `demolish` | 强拆卡降低对手建筑等级 |
+| `globalEvent` | 新一轮开始时的全局经济事件（`none` 表示没有 / 已结束） |
+| `prompt` | 产生待选择项（购买、升级、收购、节庆、航班、选道具目标） |
+| `decline` | 玩家放弃了某个选择 |
+| `end` | 对局结束（胜者与原因） |
+
+## 回放
+
+对局由 `seed + 座位配置 + 操作序列` 完全决定。对局结束的结算页有「导出回放 JSON」按钮（单机直接导出本地记录，联机向对战服请求 `exportReplay`），
+文件结构见 `packages/shared/src/replay.ts` 的 `GameRecord`；用 `replayGame(record)` 即可还原最终状态，测试里验证了重放与原局 `GameState` 完全一致。
+
+## 账号预留
+
+`SeatConfig.accountId` / `JoinOptions.accountId` 为可选透传字段：引擎与对战服只携带、不校验，不参与任何规则（本期不含登录与业务服）。
+
 ## 下一步（建议）
 
 1. 账号与存档：Go 业务服（登录、角色养成、道具、商城），对战服只信任业务服签发的票据
