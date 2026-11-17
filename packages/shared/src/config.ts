@@ -133,3 +133,25 @@ export const ITEMS: Record<(typeof ITEM_IDS)[number], { name: string; desc: stri
   freeBuild: { name: '免费建造卡', desc: '自己一处城市免费升 1 级（lv<3）' },
   teleport: { name: '传送卡', desc: '立即飞往任意一格并结算落地' },
 };
+
+// ── v0.3：观战 / 快速匹配 / 回放播放器（均为提案值）──
+/** 观战：每个房间最多同时容纳的观战者数（不占座位、不计入 actorOf） */
+export const SPECTATE = {
+  maxSpectators: 8,
+} as const;
+
+/** 快速匹配：凑满 matchSize 人立即开局；等候超过 timeoutMs 后用机器人补位开局 */
+export const MATCH = {
+  matchSize: 4,
+  /** 从队首玩家入队起算的等候上限（毫秒） */
+  timeoutMs: 20000,
+  /** 超时补位开局所需的最少真人数 */
+  minHumans: 1,
+} as const;
+
+/** 回放播放器：可选倍速与基础步间停顿 */
+export const REPLAY_PLAYER = {
+  speeds: [0.5, 1, 2, 4],
+  /** 一步演出结束后到下一步开始前的停顿（毫秒，1 倍速下） */
+  gapMs: 300,
+} as const;

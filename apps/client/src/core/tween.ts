@@ -10,8 +10,12 @@ export const ease = {
   outQuad: (t: number) => 1 - (1 - t) * (1 - t),
 };
 
+/** 全局演出倍速（回放播放器调速用）：补间与 sleep 的时长都除以它 */
+export const clock = { scale: 1 };
+
 export function tween(dur: number, step: (k: number) => void, e: Ease = ease.outCubic): Promise<void> {
   return new Promise((res) => {
+    dur /= clock.scale;
     if (dur <= 0) { step(1); res(); return; }
     const t0 = performance.now();
     const f = (now: number) => {
@@ -23,7 +27,7 @@ export function tween(dur: number, step: (k: number) => void, e: Ease = ease.out
   });
 }
 
-export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms / clock.scale));
 export const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 
 /** 十六进制颜色调亮（f>0）或调暗（f<0），返回数字颜色 */

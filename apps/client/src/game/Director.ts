@@ -6,7 +6,7 @@ import {
   BOARD, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
   actorOf, controlOf, investedValue, mortgageValue, redeemCost, tollOf, totalAssets,
   GLOBAL_EVENTS,
-  type Action, type GameEvent, type GameState, type ItemId, type Pending, type WinReason,
+  type Action, type GameEvent, type GameRecord, type GameState, type ItemId, type Pending, type WinReason,
 } from '@dt/shared';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
@@ -29,7 +29,11 @@ export class Director {
   private latest: SyncMsg | null = null;
   private preview: { destroy(): void }[] = [];
 
-  constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void) {
+  private pendingJump: GameState | null = null;
+  private abort = false;
+
+  constructor(private world: World, private hud: Hud, private src: GameSource, private onRestart: () => void, private onWatchReplay?: (rec: GameRecord) => void) {
+    src.onJump?.((s) => this.jump(s));
     src.onSync((m) => {
       this.hud.cancelInput();
       this.hud.closeProps();
@@ -40,15 +44,46 @@ export class Director {
 
   private get me() { return this.src.mySeat; }
 
+  /** 回放跳转：丢弃排队中的演出，当前这一步播完即停，然后把画面直接重置到 state */
+  private jump(s: GameState) {
+    this.queue = [];
+    this.pendingJump = s;
+    this.abort = true;
+    this.hud.cancelInput();
+    this.hud.closeProps();
+    void this.pump();
+  }
+
+  private applyJump(s: GameState) {
+    this.preview.forEach((g) => g.destroy());
+    this.preview = [];
+    this.hud.hideResult();
+    this.vm = null;
+    this.latest = null;
+    this.init(s);
+    this.hud.setTurn(s.turn, '行动中…');
+    this.world.tokens.forEach((t, i) => t.setActive(i === s.turn));
+    this.latest = { state: s, events: [], deadline: null };
+    void this.world.camTo(0, 0, 1, 0);
+  }
+
   private async pump() {
     if (this.busy) return;
     this.busy = true;
     try {
-      while (this.queue.length) {
+      for (;;) {
+        if (this.pendingJump) {
+          const s = this.pendingJump;
+          this.pendingJump = null;
+          this.abort = false;
+          this.applyJump(s);
+        }
+        if (!this.queue.length) break;
         const m = this.queue.shift()!;
         if (this.latest && m.state.seq < this.latest.state.seq) continue;
         if (!this.vm) this.init(m.state);
-        for (const e of m.events) await this.play(e);
+        for (const e of m.events) { if (this.abort) break; await this.play(e); }
+        if (this.abort) continue;
         this.reconcile(m.state);
         this.latest = m;
         this.hud.setDeadline(m.deadline);
@@ -57,6 +92,7 @@ export class Director {
       this.busy = false;
     }
     if (this.latest && !this.queue.length) void this.input(this.latest);
+    this.src.notifyIdle?.();
   }
 
   // ───────────────────────── 初始化与校正 ─────────────────────────
@@ -563,15 +599,23 @@ export class Director {
       value: totalAssets(s, i), tag: i === winner ? '胜利' : p.bankrupt ? '破产' : '',
       w: i === winner ? 1 : 0,
     })).sort((a, b) => b.w - a.w || b.value - a.value);
+    const kind = this.src.kind;
+    const watching = kind === 'replay' || kind === 'spectate';
     const meWin = winner === this.me;
-    if (meWin) AU.play('win'); else AU.play('miss');
-    this.hud.showResult(meWin ? '大获全胜' : `${s.seats[winner].name} 获胜`, WIN_TEXT[reason], rows, this.onRestart, async () => {
+    if (meWin || watching) AU.play('win'); else AU.play('miss');
+    const doExport = async () => {
       const rec = await this.src.exportReplay();
       const url = URL.createObjectURL(new Blob([JSON.stringify(rec, null, 2)], { type: 'application/json' }));
       const a = document.createElement('a');
       a.href = url; a.download = `dice-tycoon-replay-${rec.seed}.json`; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-    });
+    };
+    this.hud.showResult(meWin ? '大获全胜' : `${s.seats[winner].name} 获胜`, WIN_TEXT[reason], rows,
+      kind === 'replay' ? () => {} : this.onRestart, doExport,
+      {
+        againLabel: kind === 'replay' ? '返回回放' : kind === 'spectate' ? '返回菜单' : undefined,
+        onReplay: !watching && this.onWatchReplay ? async () => this.onWatchReplay!(await this.src.exportReplay()) : undefined,
+      });
   }
 }
 

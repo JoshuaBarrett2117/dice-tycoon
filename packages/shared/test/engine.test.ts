@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  ReplayRecorder, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
+  ReplayPlayer, ReplayRecorder, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type GameState, type SeatConfig,
 } from '../src';
 
@@ -751,4 +751,74 @@ describe('v0.2 阶段4：抵押与赎回', () => {
     expect(botAction(back, 0)).toEqual({ type: 'redeem', tile: 9 });
   });
 
+});
+
+describe('v0.3 阶段1：回放播放器', () => {
+  const bots = SEATS.map((x) => ({ ...x, isBot: true }));
+  const make = (seed: number) => {
+    let s = createGame({ seed, seats: bots });
+    const rec = new ReplayRecorder({ seed, seats: bots });
+    while (s.phase !== 'ended') { const who = actorOf(s), a = botAction(s, who); s = ok(s, who, a).state; rec.push(who, a); }
+    return { final: s, rec: JSON.parse(JSON.stringify(rec.toRecord(s))) as ReturnType<ReplayRecorder['toRecord']> };
+  };
+
+  it('逐 seq 的状态与直接重放前 n 步完全一致，帧下标 = state.seq', () => {
+    const { rec } = make(11);
+    const player = new ReplayPlayer(rec);
+    expect(player.total).toBe(rec.actions.length);
+    for (const n of [0, 1, 2, 17, Math.floor(player.total / 2), player.total - 1, player.total]) {
+      const direct = replayGame({ ...rec, actions: rec.actions.slice(0, n) }).state;
+      const f = player.seek(n);
+      expect(f.index).toBe(n);
+      expect(f.state.seq).toBe(n);
+      expect(f.state).toEqual(direct);
+    }
+    // 全量逐帧：每帧状态 = 上一帧状态 + 该步操作
+    let prev = player.frames[0].state;
+    for (const f of player.frames.slice(1)) {
+      const r = ok(prev, f.seat!, f.action!);
+      expect(r.state).toEqual(f.state);
+      expect(r.events).toEqual(f.events);
+      prev = f.state;
+    }
+    expect(player.frames[player.total].state).toEqual(replayGame(rec).state);
+  });
+
+  it('单步前进 / 后退 / 跳转，越界被夹住', () => {
+    const { rec } = make(12);
+    const p = new ReplayPlayer(rec);
+    expect(p.atStart).toBe(true);
+    expect(p.prev()).toBeNull();
+    expect(p.next()!.index).toBe(1);
+    expect(p.next()!.index).toBe(2);
+    expect(p.prev()!.index).toBe(1);
+    expect(p.seek(-5).index).toBe(0);
+    expect(p.seek(1e9).index).toBe(p.total);
+    expect(p.atEnd).toBe(true);
+    expect(p.next()).toBeNull();
+    expect(p.seek(NaN).index).toBe(0);
+  });
+
+  it('第 0 帧带开局事件；回放文件损坏或被篡改时抛错', () => {
+    const { rec } = make(13);
+    const p = new ReplayPlayer(rec);
+    expect(p.frames[0].events.length).toBeGreaterThan(0);
+    expect(() => new ReplayPlayer({ ...rec, format: 'x' as never })).toThrow();
+    expect(() => new ReplayPlayer({ ...rec, actions: undefined as never })).toThrow();
+    const bad = { ...rec, actions: [{ seat: 3, action: { type: 'roll', zone: 0 } as const }, ...rec.actions] };
+    expect(() => new ReplayPlayer(bad)).toThrow();
+  });
+
+  it('回放摘要记录胜负与名次：胜者第一，终局才有 ranking', () => {
+    const { final, rec } = make(14);
+    const rk = rec.result!.ranking!;
+    expect(rk).toHaveLength(4);
+    expect(rk[0].seat).toBe(final.winner);
+    expect(rk[0].won).toBe(true);
+    expect(rk.filter((r) => r.won)).toHaveLength(1);
+    expect(rk.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
+    expect(rk.every((r) => r.assets === totalAssets(final, r.seat))).toBe(true);
+    const mid = new ReplayRecorder({ seed: 1, seats: bots }).toRecord(createGame({ seed: 1, seats: bots }));
+    expect(mid.result!.ranking).toBeUndefined();
+  });
 });

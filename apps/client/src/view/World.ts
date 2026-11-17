@@ -35,6 +35,8 @@ export class World {
   tokens: Token[] = [];
   cam = { x: 0, y: 0, s: 1 };
   private colors: string[] = [];
+  /** buildBoard 创建的所有装饰（阴影、广场、地块顶面、角落地标、标签），重建棋盘前统一销毁 */
+  private decor: Container[] = [];
 
   async init(host: HTMLElement) {
     await this.app.init({ width: 1280, height: 720, backgroundAlpha: 0, antialias: true, resolution: this.res(), autoDensity: true });
@@ -73,11 +75,19 @@ export class World {
   buildBoard(state: GameState) {
     const g = this.boardG;
     g.clear();
+    // 重建（回放跳转 / 重新开局）：先清掉上一次的装饰、建筑与地面特效
+    this.decor.forEach((d) => d.destroy({ children: true }));
+    this.decor = [];
+    this.buildings.forEach((b) => b?.destroy({ children: true }));
+    this.buildings = [];
+    this.tileTops = [];
+    this.ground.removeChildren().forEach((x) => x.destroy());
     // 投影阴影
     const sh = new Graphics();
     sh.poly([P(0, 0, -6), P(S, 0, -6), P(S, S, -6), P(0, S, -6)].flatMap(([x, y]) => [x, y + 14])).fill({ color: 0x0a283c, alpha: 0.45 });
     sh.filters = [new BlurFilter({ strength: 14 })];
     this.root.addChildAt(sh, 1);
+    this.decor.push(sh as unknown as Container);
     slab(g, -8, -8, S + 8, S + 8, 0, BASEH, 0xfdf6e7, 0xc9a97a, 0xb8956a, 0xe8d6b4);
     g.poly([P(CW + 6, CW + 6, BASEH), P(S - CW - 6, CW + 6, BASEH), P(S - CW - 6, S - CW - 6, BASEH), P(CW + 6, S - CW - 6, BASEH)].flat())
       .fill(0xf3e6c8).stroke({ width: 2, color: 0xe2cfa6 });
@@ -86,6 +96,7 @@ export class World {
     logo.alpha = 0.2; logo.rotation = -Math.PI / 4; logo.position.set(S / 2 - 120, S / 2 - 120);
     plaza.addChild(logo);
     this.root.addChildAt(plaza, 3);
+    this.decor.push(plaza);
 
     // 地块：从远到近绘制
     const order = [...GEO].sort((a, b) => a.r[2] + a.r[3] - (b.r[2] + b.r[3]));
@@ -103,6 +114,7 @@ export class World {
     BOARD.forEach((_, i) => {
       const c = planeLayer(ZT);
       this.root.addChildAt(c, this.root.getChildIndex(this.ground));
+      this.decor.push(c);
       this.tileTops[i] = c;
       this.drawTileTop(i, state);
     });
@@ -116,11 +128,13 @@ export class World {
       sp.position.set(x, y + 30);
       sp.zIndex = (y - 10) * 10;
       this.objs.addChild(sp);
+      this.decor.push(sp as unknown as Container);
       const lab = planeLayer(ZT);
       const t = txt(d.name, 15, 0x3c3c5a); t.alpha = 0.55; t.rotation = Math.PI / 4; t.anchor.set(0.5);
       t.position.set(geo.cu - 28, geo.cv + 28);
       lab.addChild(t);
       this.root.addChildAt(lab, this.root.getChildIndex(this.ground));
+      this.decor.push(lab);
     });
     this.buildings = BOARD.map(() => null);
     state.tiles.forEach((_, i) => this.setBuilding(i, state, false));

@@ -1,8 +1,9 @@
 import './style.css';
-import { CHARACTERS, CHAR_IDS, type CharId, type SeatConfig } from '@dt/shared';
+import { CHARACTERS, CHAR_IDS, type CharId, type GameRecord, type SeatConfig } from '@dt/shared';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
-import { NetSource, LocalSource, type GameSource, type LobbyMsg } from './net/source';
+import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
+import { mountReplayBar } from './ui/ReplayBar';
 import { Hud } from './ui/Hud';
 import { World } from './view/World';
 
@@ -59,6 +60,7 @@ function showMenu(msg = '') {
         <button class="big blue" id="create">创建房间<small>好友联机，空位机器人补齐</small></button>
       </div>
       <div class="join"><input id="rid" placeholder="输入房间号加入"><button id="joinb">加入</button></div>
+      <div class="subbtns"><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
       <details><summary>服务器</summary><input id="srv" value="${prefs.server}"></details>
       <div class="msg">${msg}</div>
     </div>`;
@@ -75,6 +77,15 @@ function showMenu(msg = '') {
   };
   m.querySelector<HTMLButtonElement>('#solo')!.onclick = () => { save(); startSolo(); };
   m.querySelector<HTMLButtonElement>('#create')!.onclick = () => { save(); void startOnline(); };
+  m.querySelector<HTMLInputElement>('#rfile')!.onchange = async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    try {
+      startReplay(JSON.parse(await f.text()) as GameRecord, true);
+    } catch (err) {
+      showMenu(`回放文件无法播放：${(err as Error).message || err}`);
+    }
+  };
   m.querySelector<HTMLButtonElement>('#joinb')!.onclick = () => {
     save();
     const id = m.querySelector<HTMLInputElement>('#rid')!.value.trim();
@@ -131,12 +142,31 @@ async function startOnline(roomId?: string) {
   });
 }
 
+// ───────────────────────── 回放 ─────────────────────────
+/** 播放一份回放：fromMenu 为 true 时，文件无效要回到菜单提示；否则（对局结束后点「回放本局」）直接切换 */
+function startReplay(rec: GameRecord, fromMenu = false) {
+  let src: ReplaySource;
+  try {
+    src = new ReplaySource(rec);
+  } catch (err) {
+    if (fromMenu) throw err;
+    showMenu(`回放无法播放：${(err as Error).message || err}`);
+    return;
+  }
+  teardownGame();
+  closeOverlay();
+  void startGame(src);
+}
+
 // ───────────────────────── 对局 ─────────────────────────
 async function startGame(src: GameSource) {
   source = src;
   await worldReady;
   const hud = new Hud(stage);
-  new Director(world!, hud, src, () => showMenu());
+  let unmountBar: (() => void) | null = null;
+  const exit = () => { unmountBar?.(); showMenu(); };
+  if (src instanceof ReplaySource) unmountBar = mountReplayBar(document.getElementById('hud')!, src, exit);
+  new Director(world!, hud, src, exit, (rec) => startReplay(rec));
   AU.startBGM();
 }
 

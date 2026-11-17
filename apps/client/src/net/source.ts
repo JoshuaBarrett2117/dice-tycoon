@@ -1,6 +1,7 @@
 import { Client, type Room } from '@colyseus/sdk';
+import { clock } from '../core/tween';
 import {
-  ROOM_NAME, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
+  REPLAY_PLAYER, ROOM_NAME, ReplayPlayer, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type CharId, type GameEvent, type GameRecord, type GameState, type LobbySeat, type SeatConfig,
 } from '@dt/shared';
 
@@ -13,12 +14,19 @@ export interface GameSource {
   send(a: Action): void;
   /** 导出本局回放（seed + 座位配置 + 操作序列） */
   exportReplay(): Promise<GameRecord>;
+  /** 数据源类型：影响结算页按钮等文案 */
+  kind?: 'solo' | 'online' | 'replay' | 'spectate';
+  /** 回放：跳转（不播动画，直接把画面重置到某个状态） */
+  onJump?(cb: (state: GameState) => void): void;
+  /** 导演把队列里的演出播完后调用，回放据此排下一步 */
+  notifyIdle?(): void;
   dispose(): void;
 }
 
 // ───────────────────────── 单机 ─────────────────────────
 export class LocalSource implements GameSource {
   mySeat = 0;
+  kind = 'solo' as const;
   private state: GameState;
   private cb: ((m: SyncMsg) => void) | null = null;
   private timer = 0;
@@ -66,6 +74,7 @@ export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; ro
 
 export class NetSource implements GameSource {
   mySeat = -1;
+  kind: 'online' | 'spectate' = 'online';
   private cb: ((m: SyncMsg) => void) | null = null;
   private backlog: SyncMsg[] = [];
   private lastLobby: LobbyMsg | null = null;
@@ -105,4 +114,78 @@ export class NetSource implements GameSource {
   }
   send(a: Action) { this.room.send('action', a); }
   dispose() { this.cb = null; void this.room.leave(); }
+}
+
+// ───────────────────────── 回放 ─────────────────────────
+export interface ReplayUiState { index: number; total: number; playing: boolean; speed: number }
+
+/** 回放数据源：把 GameRecord 逐步喂给导演；支持播放 / 暂停 / 单步 / 调速 / 跳转 */
+export class ReplaySource implements GameSource {
+  mySeat = -1;
+  kind = 'replay' as const;
+  readonly player: ReplayPlayer;
+  private cb: ((m: SyncMsg) => void) | null = null;
+  private jumpCb: ((s: GameState) => void) | null = null;
+  private uiCb: ((u: ReplayUiState) => void) | null = null;
+  private timer = 0;
+  private playing = false;
+  /** 导演正在播放上一步的演出 */
+  private busy = false;
+  speed = 1;
+
+  constructor(readonly record: GameRecord) {
+    this.player = new ReplayPlayer(record);
+  }
+
+  get ui(): ReplayUiState { return { index: this.player.index, total: this.player.total, playing: this.playing, speed: this.speed }; }
+  onUi(cb: (u: ReplayUiState) => void) { this.uiCb = cb; cb(this.ui); }
+  private fire() { this.uiCb?.(this.ui); }
+
+  onSync(cb: (m: SyncMsg) => void) {
+    this.cb = cb;
+    this.busy = true;
+    cb({ state: this.player.frame.state, events: [], deadline: null });
+  }
+  onJump(cb: (s: GameState) => void) { this.jumpCb = cb; }
+  send() { /* 回放不接受操作 */ }
+  exportReplay() { return Promise.resolve(this.record); }
+  dispose() { clearTimeout(this.timer); this.cb = null; this.jumpCb = null; this.uiCb = null; clock.scale = 1; }
+
+  notifyIdle() {
+    this.busy = false;
+    if (!this.playing) return;
+    clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => this.advance(), REPLAY_PLAYER.gapMs / this.speed);
+  }
+
+  /** 播放下一步（带演出）；到末尾自动停 */
+  private advance() {
+    const f = this.player.next();
+    if (!f) { this.playing = false; this.fire(); return; }
+    this.busy = true;
+    this.cb?.({ state: f.state, events: f.events, deadline: null });
+    this.fire();
+  }
+
+  play() {
+    if (this.player.atEnd) this.seek(0);
+    this.playing = true;
+    this.fire();
+    if (!this.busy) this.advance();
+  }
+  pause() { this.playing = false; clearTimeout(this.timer); this.fire(); }
+  toggle() { if (this.playing) this.pause(); else this.play(); }
+  /** 单步前进（带演出） */
+  stepForward() { this.pause(); this.advance(); }
+  /** 单步后退：回到上一帧的状态（直接重置画面） */
+  stepBack() { this.pause(); const f = this.player.prev(); if (f) this.jumpTo(f.state); }
+  /** 跳转到指定 seq */
+  seek(seq: number) { clearTimeout(this.timer); const f = this.player.seek(seq); this.jumpTo(f.state); }
+  setSpeed(v: number) { this.speed = v; clock.scale = v; this.fire(); }
+
+  private jumpTo(state: GameState) {
+    this.busy = true;
+    this.jumpCb?.(state);
+    this.fire();
+  }
 }
