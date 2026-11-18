@@ -180,7 +180,7 @@ v0.3 起 `result.ranking` 在对局结束后给出每个座位的胜负与名次
 ## v0.9 更新说明（资源通道 / 图标 / 立绘）
 
 - **加载进度**：首屏进度条与百分比；渲染器等按需 chunk 由 Vite 自动分包，音频文件首次播放才加载（不计入首包）。首包口径：`npm run build` 产物中首屏必需的 js/css/图片，当前 `apps/client/dist` 约 2.2 MB。
-- **音效文件通道**：`audio.ts` 接口不变；优先加载 `/audio/sfx/<名称>.ogg|.m4a`，缺失或解码失败自动回退合成音效。真实 BGM/音效素材到位后放入 `apps/client/public/audio/` 即可替换。
+- **音效文件通道**：`audio.ts` 接口不变；优先加载 `/audio/sfx/<名称>.ogg|.m4a`，缺失或解码失败自动回退合成音效。已接入真实素材（#14）：24 个音效来自 Kenney CC0，BGM 为 Pixabay「Tropical Bounce」（Pixabay Content License），位于 `apps/client/public/audio/`（含 NOTES.md / sfx-mapping.json 记录来源与许可）；BGM 同样走文件通道（循环，兼容 setMood/toggleMusic，缺失回退合成）。音频约 5.8 MB（ogg+m4a 两份，浏览器只取其一），首次播放才加载，不计入首包 dist 统计。
 - **图标**：道具 10 种、角色技能 6 个、竞拍均为内联 SVG（`apps/client/src/ui/icons.ts`），道具/技能按钮上显示。
 - **立绘**：岩盾阿岩改用独立 SVG 立绘（`char6.svg`），不再复用熊猫。
 - **待办**：正式统一风格美术与真实音频素材需外部提供；规则引擎未改动，`GameState.version` 仍为 2。

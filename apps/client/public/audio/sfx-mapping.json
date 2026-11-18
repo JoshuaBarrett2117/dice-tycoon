@@ -1,0 +1,170 @@
+{
+  "click": {
+    "source_pack": "Interface Sounds",
+    "source_file": "click_001.wav",
+    "ogg_duration_s": 0.11,
+    "ogg_bytes": 4922,
+    "m4a_bytes": 2931
+  },
+  "turn": {
+    "source_pack": "Interface Sounds",
+    "source_file": "confirmation_002.wav",
+    "ogg_duration_s": 0.56,
+    "ogg_bytes": 8047,
+    "m4a_bytes": 9272
+  },
+  "charge": {
+    "source_pack": "Interface Sounds",
+    "source_file": "maximize_002.wav",
+    "ogg_duration_s": 0.26,
+    "ogg_bytes": 5662,
+    "m4a_bytes": 5145
+  },
+  "zone": {
+    "source_pack": "Interface Sounds",
+    "source_file": "pluck_001.wav",
+    "ogg_duration_s": 0.11,
+    "ogg_bytes": 5928,
+    "m4a_bytes": 2896
+  },
+  "dice": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_wood_light_002.ogg",
+    "ogg_duration_s": 0.27,
+    "ogg_bytes": 6366,
+    "m4a_bytes": 4922
+  },
+  "diceLand": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_wood_medium_000.ogg",
+    "ogg_duration_s": 0.33,
+    "ogg_bytes": 6575,
+    "m4a_bytes": 6092
+  },
+  "hit": {
+    "source_pack": "Music Jingles",
+    "source_file": "jingles_hit_3.ogg",
+    "ogg_duration_s": 0.75,
+    "ogg_bytes": 13944,
+    "m4a_bytes": 13300
+  },
+  "miss": {
+    "source_pack": "Interface Sounds",
+    "source_file": "error_002.wav",
+    "ogg_duration_s": 0.17,
+    "ogg_bytes": 6707,
+    "m4a_bytes": 3708
+  },
+  "double": {
+    "source_pack": "Music Jingles",
+    "source_file": "jingles_steel_5.ogg",
+    "ogg_duration_s": 0.94,
+    "ogg_bytes": 15082,
+    "m4a_bytes": 16443
+  },
+  "hop": {
+    "source_pack": "Interface Sounds",
+    "source_file": "pluck_002.wav",
+    "ogg_duration_s": 0.18,
+    "ogg_bytes": 6599,
+    "m4a_bytes": 4070
+  },
+  "land": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_soft_medium_000.ogg",
+    "ogg_duration_s": 0.12,
+    "ogg_bytes": 5351,
+    "m4a_bytes": 3014
+  },
+  "coin": {
+    "source_pack": "RPG Audio",
+    "source_file": "handle_coins_2.ogg",
+    "ogg_duration_s": 0.34,
+    "ogg_bytes": 13094,
+    "m4a_bytes": 6319
+  },
+  "cash": {
+    "source_pack": "RPG Audio",
+    "source_file": "handle_coins.ogg",
+    "ogg_duration_s": 0.85,
+    "ogg_bytes": 25394,
+    "m4a_bytes": 15060
+  },
+  "build": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_plank_medium_002.ogg",
+    "ogg_duration_s": 0.78,
+    "ogg_bytes": 12313,
+    "m4a_bytes": 13791
+  },
+  "salary": {
+    "source_pack": "Music Jingles",
+    "source_file": "jingles_pizzi_4.ogg",
+    "ogg_duration_s": 0.56,
+    "ogg_bytes": 11052,
+    "m4a_bytes": 10067
+  },
+  "ouch": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_punch_medium_001.ogg",
+    "ogg_duration_s": 0.4,
+    "ogg_bytes": 8701,
+    "m4a_bytes": 7840
+  },
+  "pay": {
+    "source_pack": "Interface Sounds",
+    "source_file": "minimize_003.wav",
+    "ogg_duration_s": 0.22,
+    "ogg_bytes": 6721,
+    "m4a_bytes": 4340
+  },
+  "gain": {
+    "source_pack": "Interface Sounds",
+    "source_file": "confirmation_001.wav",
+    "ogg_duration_s": 0.29,
+    "ogg_bytes": 5399,
+    "m4a_bytes": 5594
+  },
+  "sheet": {
+    "source_pack": "RPG Audio",
+    "source_file": "book_flip_1.ogg",
+    "ogg_duration_s": 0.77,
+    "ogg_bytes": 18248,
+    "m4a_bytes": 13347
+  },
+  "takeover": {
+    "source_pack": "Impact Sounds",
+    "source_file": "impact_bell_heavy_002.ogg",
+    "ogg_duration_s": 0.7,
+    "ogg_bytes": 9252,
+    "m4a_bytes": 12255
+  },
+  "island": {
+    "source_pack": "Music Jingles",
+    "source_file": "jingles_steel_0.ogg",
+    "ogg_duration_s": 0.93,
+    "ogg_bytes": 15691,
+    "m4a_bytes": 16047
+  },
+  "card": {
+    "source_pack": "RPG Audio",
+    "source_file": "book_flip_2.ogg",
+    "ogg_duration_s": 0.43,
+    "ogg_bytes": 12393,
+    "m4a_bytes": 7999
+  },
+  "tax": {
+    "source_pack": "Interface Sounds",
+    "source_file": "minimize_005.wav",
+    "ogg_duration_s": 0.55,
+    "ogg_bytes": 10401,
+    "m4a_bytes": 9805
+  },
+  "win": {
+    "source_pack": "Music Jingles",
+    "source_file": "jingles_sax_3.ogg",
+    "ogg_duration_s": 1.12,
+    "ogg_bytes": 19785,
+    "m4a_bytes": 19194
+  }
+}

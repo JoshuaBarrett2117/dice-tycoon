@@ -51,8 +51,8 @@ const AU_IMPL=(()=>{const AC=window.AudioContext||window.webkitAudioContext;cons
    // sparkle every 4 bars
    if(pos===0)I.bell(84,t,.04,music,1.4);
    next+=SP;step++}}
- function startBGM(){if(timer)return;next=ctx.currentTime+.08;step=0;timer=setInterval(schedule,25)}
- function stopBGM(){clearInterval(timer);timer=null}
+ function startBGM(){if(bgmOn())return;if(BGM===undefined)loadBgm();if(BGM&&BGM!=='loading'){if(timer){clearInterval(timer);timer=null}playBgm();return}if(timer)return;next=ctx.currentTime+.08;step=0;timer=setInterval(schedule,25)}
+ function stopBGM(){clearInterval(timer);timer=null;if(bgmSrc){try{bgmSrc.stop()}catch(e){}bgmSrc=null}}
  const T=()=>ctx.currentTime+.005;
  const S={
   click(){const t=T();I.wood(84,t,.25);},
@@ -80,6 +80,13 @@ const AU_IMPL=(()=>{const AC=window.AudioContext||window.webkitAudioContext;cons
   tax(){const t=T();I.marimba(57,t,.3,sfx);I.marimba(53,t+.15,.3,sfx);I.bass(41,t+.3,.4,.4,sfx)},
   win(){const t=T();[[65,0],[69,.15],[72,.3],[77,.45]].forEach(([n,d])=>I.brass(n,t+d,.18,.24));I.brass(77,t+.65,.9,.26);I.brass(81,t+.65,.9,.2);[89,93,96].forEach((n,i)=>I.bell(n,t+.65+i*.08,.12))}
  };
+ // BGM 文件通道：优先 /audio/bgm.<ext>（循环），缺失/失败回退合成 BGM；加载完成后无缝切换
+ let BGM:AudioBuffer|null|'loading'|undefined,bgmSrc:AudioBufferSourceNode|null=null;
+ function bgmOn(){return !!bgmSrc}
+ function playBgm(){if(bgmSrc||!BGM||BGM==='loading')return;const s=ctx.createBufferSource();s.buffer=BGM;s.loop=true;s.connect(music);s.start();bgmSrc=s}
+ function loadBgm(){BGM='loading';const ext=document.createElement('audio').canPlayType?.('audio/ogg; codecs=vorbis')?'ogg':'m4a';
+  fetch(`${import.meta.env.BASE_URL||'/'}audio/bgm.${ext}`).then(r=>{if(!r.ok||/text\/html/.test(r.headers.get('content-type')||''))throw 0;return r.arrayBuffer()})
+  .then(b=>ctx.decodeAudioData(b)).then(buf=>{BGM=buf;if(on&&timer){clearInterval(timer);timer=null;playBgm()}}).catch(()=>{BGM=null})}
  // 真实音频文件通道：优先 /audio/sfx/<name>.ogg|.m4a（懒加载、首次 play 才请求），缺失或解码失败则永久回退合成音效
  const FILES:Record<string,AudioBuffer|null|'loading'>={};
  const EXT=(()=>{const a=document.createElement('audio');return a.canPlayType&&a.canPlayType('audio/ogg; codecs=vorbis')?'ogg':'m4a'})();
