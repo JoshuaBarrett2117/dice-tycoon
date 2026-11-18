@@ -651,5 +651,5 @@ export class Director {
 // 资源路径
 const base = () => import.meta.env.BASE_URL + 'assets/';
 export const charUrl = (c: string) => `${base()}${CHAR_TEX[c]}.svg`;
-const coinUrl = () => `${base()}coin.png`;
-const bldUrl = (lv: number) => `${base()}bld${lv}.png`;
+const coinUrl = () => `${base()}coin.svg`;
+const bldUrl = (lv: number) => `${base()}bld${lv}.svg`;

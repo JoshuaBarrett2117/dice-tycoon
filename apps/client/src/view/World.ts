@@ -16,8 +16,8 @@ const CORNER_TEX: Record<string, string> = { start: 'c_start', island: 'c_island
 const BLD_H = [0, 52, 76, 100, 96];
 
 export const ASSET_LIST = [
-  'bg.jpg', 'c_start.png', 'c_island.png', 'c_fest.png', 'c_air.png',
-  'bld1.png', 'bld2.png', 'bld3.png', 'bld4.png', 'coin.png',
+  'bg.svg', 'c_start.svg', 'c_island.svg', 'c_fest.svg', 'c_air.svg',
+  'bld1.svg', 'bld2.svg', 'bld3.svg', 'bld4.svg', 'coin.svg',
   'char1.svg', 'char2.svg', 'char3.svg', 'char4.svg', 'char5.svg', 'char6.svg',
 ];
 
