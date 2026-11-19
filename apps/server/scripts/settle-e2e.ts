@@ -27,7 +27,7 @@ const c1 = new Client(URL), c2 = new Client(URL);
 const r1 = await c1.create(ROOM_NAME, { name: 'login', charId: 'jin', ticket: tk.ticket });
 const r2 = await c2.joinById(r1.roomId, { name: 'anon', charId: 'li', accountId: 'acc_forged' });
 let last: GameState | null = null;
-for (const [room, seatRef] of [[r1, { s: -1 }], [r2, { s: -1 }]] as const) {
+for (const [room, seatRef] of [[r1, { s: -1 }], [r2, { s: -1 }]] as [any, { s: number }][]) {
   room.onMessage('seat', (m: { seat: number }) => { seatRef.s = m.seat; });
   room.onMessage('sync', (m: { state: GameState }) => {
     last = m.state;
