@@ -34,6 +34,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/account/train", s.authed(s.train))
 	mux.HandleFunc("GET /api/account/shop", s.shop)
 	mux.HandleFunc("POST /api/account/shop/buy", s.authed(s.buy))
+	mux.HandleFunc("POST /api/account/equip", s.authed(s.equip(true)))
+	mux.HandleFunc("POST /api/account/unequip", s.authed(s.equip(false)))
 	mux.HandleFunc("GET /api/account/leaderboard", s.leaderboard)
 	mux.HandleFunc("GET /api/account/season", s.seasonInfo)
 	mux.HandleFunc("POST /internal/grant", s.grant)
@@ -180,7 +182,7 @@ func (s *Server) train(w http.ResponseWriter, r *http.Request, a *Account, tok s
 }
 
 func (s *Server) shop(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"items": []ShopItem{}, "train": map[string]int{"cost": TrainCost, "exp": TrainExp, "expPerLevel": expPerLevel, "maxLevel": maxLevel}})
+	writeJSON(w, 200, map[string]any{"items": []ShopItem{}, "categories": shopCategories(), "train": map[string]int{"cost": TrainCost, "exp": TrainExp, "expPerLevel": expPerLevel, "maxLevel": maxLevel}})
 }
 
 func (s *Server) buy(w http.ResponseWriter, r *http.Request, a *Account, tok string) {
@@ -266,4 +268,23 @@ func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) seasonInfo(w http.ResponseWriter, r *http.Request) {
 	cur, hist := s.st.SeasonView()
 	writeJSON(w, 200, map[string]any{"season": cur, "history": hist, "days": SeasonDays})
+}
+
+// equip 装备/卸下已购装饰：body {"item":"skin_jin"}。当前装备随 /me 返回，联机入座时客户端带上（本期仅自己可见）。
+func (s *Server) equip(on bool) authedFn {
+	return func(w http.ResponseWriter, r *http.Request, a *Account, tok string) {
+		var b struct {
+			Item string `json:"item"`
+		}
+		if err := decode(r, &b); err != nil {
+			fail(w, err)
+			return
+		}
+		v, err := s.st.Equip(a.ID, b.Item, on)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"account": v})
+	}
 }

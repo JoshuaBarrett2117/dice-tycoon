@@ -19,6 +19,7 @@ export const ASSET_LIST = [
   'bg.svg', 'c_start.svg', 'c_island.svg', 'c_fest.svg', 'c_air.svg',
   'bld1.svg', 'bld2.svg', 'bld3.svg', 'bld4.svg', 'coin.svg',
   'char1.svg', 'char2.svg', 'char3.svg', 'char4.svg', 'char5.svg', 'char6.svg',
+  'skin_jin.svg', 'skin_li.svg', 'skin_wang.svg', 'skin_xing.svg', 'skin_panda.svg', 'skin_rock.svg',
 ];
 
 export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5', rock: 'char6' };
@@ -78,11 +79,11 @@ export class World {
   }
 
   // ───────────────────────── 棋盘 ─────────────────────────
-  setPlayers(colors: string[], chars: string[]) {
+  setPlayers(colors: string[], chars: string[], skins: (string | null)[] = []) {
     this.colors = colors;
     this.tokens.forEach((t) => t.destroy());
     this.tokens = chars.map((c, i) => {
-      const tk = new Token(this.tex[CHAR_TEX[c]], colors[i], i);
+      const tk = new Token((skins[i] && this.tex[skins[i]!]) || this.tex[CHAR_TEX[c]], colors[i], i);
       this.objs.addChild(tk);
       return tk;
     });

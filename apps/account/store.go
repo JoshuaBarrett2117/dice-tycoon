@@ -51,6 +51,7 @@ type Account struct {
 	Chars     map[string]CharProgress `json:"chars"`
 	Items     map[string]int          `json:"items"`
 	LastCheck string                  `json:"lastCheckin"`
+	Cosmetics Cosmetics               `json:"cosmetics"` // v1.6 装饰库存与当前装备
 	// v1.3：联机战绩与段位（只存业务服，不进引擎与回放）
 	Rating     int   `json:"rating"`     // 段位分
 	Games      int   `json:"games"`      // 累计联机局数
@@ -274,6 +275,10 @@ func clone(a *Account) Account {
 	for k, v := range a.Chars {
 		c.Chars[k] = v
 	}
+	c.Cosmetics = Cosmetics{Owned: append([]string{}, a.Cosmetics.Owned...), Equipped: map[string]string{}}
+	for k, v := range a.Cosmetics.Equipped {
+		c.Cosmetics.Equipped[k] = v
+	}
 	c.Items = map[string]int{}
 	for k, v := range a.Items {
 		c.Items[k] = v
@@ -303,6 +308,9 @@ var ErrShopClosed = fmt.Errorf("%w: 对局道具卡已下架，仅在对局内�
 
 // Buy 商城已下架全部道具卡：一律拒绝，不扣金币、不加库存。
 func (s *Store) Buy(id, item string, qty int) (Account, error) {
+	if _, ok := cosmeticByID(item); ok {
+		return s.BuyCosmetic(id, item)
+	}
 	return Account{}, ErrShopClosed
 }
 

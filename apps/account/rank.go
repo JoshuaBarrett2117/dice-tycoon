@@ -85,7 +85,7 @@ func assetsOf(a *Account) int {
 	for _, it := range ItemValues {
 		n += it.Price * a.Items[it.ID]
 	}
-	return n
+	return n + cosmeticAssets(a)
 }
 
 // rollLocked 赛季滚动：到期则把榜单快照进历史，段位分按比例保留，赛季胜场清零；可能连滚多个赛季（服务停机很久）。

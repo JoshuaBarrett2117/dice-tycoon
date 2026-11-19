@@ -12,6 +12,7 @@ import { loadTheme } from '../core/store';
 import { AU } from '../audio/audio';
 import { sleep } from '../core/tween';
 import { GRAD, type Hud, type SheetSpec } from '../ui/Hud';
+import { skinOf } from '../cosmetics';
 import { CHAR_TEX, type World } from '../view/World';
 import { buildingAnchor, tokenAnchor } from '../view/iso';
 import type { GameSource, SyncMsg } from '../net/source';
@@ -100,12 +101,12 @@ export class Director {
   // ───────────────────────── 初始化与校正 ─────────────────────────
   private init(s: GameState) {
     this.vm = structuredClone(s);
-    this.world.setPlayers(s.seats.map((_, i) => SEAT_COLORS[i]), s.seats.map((p) => p.charId));
+    this.world.setPlayers(s.seats.map((_, i) => SEAT_COLORS[i]), s.seats.map((p) => p.charId), s.seats.map((p, i) => (i === this.me ? skinOf(p.charId) : null)));
     this.world.setTheme(loadTheme());
     this.world.buildBoard(s);
     this.hud.setupPlayers(s.seats.map((p, i) => ({
       name: p.name, charName: CHARACTERS[p.charId].name, color: SEAT_COLORS[i],
-      img: charUrl(p.charId), isMe: i === this.me,
+      img: charUrl(p.charId, i === this.me), isMe: i === this.me,
     })), s.seats.map((p) => p.cash));
     this.hud.setRound(s.round, s.maxRounds);
     this.hud.setGlobalEvent(s.globalEvent?.id ?? null);
@@ -201,7 +202,7 @@ export class Director {
         W.tokens.forEach((t, i) => t.setActive(i === e.seat));
         H.setTurn(e.seat, e.seat === this.me ? '轮到你' : '行动中…');
         if (e.seat === this.me) { H.toast('轮到你了！', GRAD.gold); AU.play('turn'); }
-        else H.setRollWaiting(vm.seats[e.seat].name, SEAT_COLORS[e.seat], charUrl(vm.seats[e.seat].charId));
+        else H.setRollWaiting(vm.seats[e.seat].name, SEAT_COLORS[e.seat], charUrl(vm.seats[e.seat].charId, e.seat === this.me));
         await W.camTo(0, 0, 1, 400);
         await sleep(250);
         break;
@@ -623,7 +624,7 @@ export class Director {
   private showEnd(winner: number, reason: WinReason) {
     const s = this.vm!;
     const rows = s.seats.map((p, i) => ({
-      name: p.name, color: SEAT_COLORS[i], img: charUrl(p.charId),
+      name: p.name, color: SEAT_COLORS[i], img: charUrl(p.charId, i === this.me),
       value: totalAssets(s, i), tag: i === winner ? '胜利' : p.bankrupt ? '破产' : '',
       w: i === winner ? 1 : 0,
     })).sort((a, b) => b.w - a.w || b.value - a.value);
@@ -650,6 +651,7 @@ export class Director {
 
 // 资源路径
 const base = () => import.meta.env.BASE_URL + 'assets/';
-export const charUrl = (c: string) => `${base()}${CHAR_TEX[c]}.svg`;
+/** mine=true 时若已装备该角色外观则用外观立绘（仅自己可见） */
+export const charUrl = (c: string, mine = false) => { const sk = mine ? skinOf(c) : null; return `${base()}${sk || CHAR_TEX[c]}.svg`; };
 const coinUrl = () => `${base()}coin.svg`;
 const bldUrl = (lv: number) => `${base()}bld${lv}.svg`;

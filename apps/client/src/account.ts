@@ -1,8 +1,10 @@
+import { setEquipped } from './cosmetics';
 /** 业务服（apps/account）客户端：登录 / 注册 / 票据。对战服把 /api/account/* 反代到业务服，所以与 prefs.server 同源。 */
 export interface AccountView {
   id: string; username: string; coins: number;
   chars: Record<string, { exp: number; level: number }>;
   items: Record<string, number>;
+  cosmetics?: { owned: string[]; equipped: Record<string, string> };
   rating?: number; games?: number; wins?: number; seasonWins?: number;
 }
 export interface RankEntry { rank: number; username: string; rating: number; tier: string; wins: number; games: number; assets: number }
@@ -10,7 +12,8 @@ export interface SeasonInfo { id: number; start: number; end: number }
 export type BoardBy = 'rating' | 'wins' | 'assets';
 export const TIERS = [[0, '青铜'], [100, '白银'], [300, '黄金'], [600, '铂金'], [1000, '钻石'], [1500, '王者']] as const;
 export const tierOf = (r: number) => TIERS.reduce((n, [m, t]) => (r >= m ? t : n), '青铜' as string);
-export interface ShopInfo { items: { id: string; name: string; price: number }[]; train: { cost: number; exp: number; expPerLevel: number; maxLevel: number } }
+export interface Cosmetic { id: string; kind: 'char' | 'skin' | 'dice'; name: string; price: number; char?: string }
+export interface ShopInfo { items: { id: string; name: string; price: number }[]; categories?: { id: string; name: string; items: Cosmetic[] }[]; train: { cost: number; exp: number; expPerLevel: number; maxLevel: number } }
 
 const KEY = 'dt.acct.v1';
 export const apiBase = (server: string) => server.replace(/^ws/, 'http').replace(/\/$/, '') + '/api/account';
@@ -38,12 +41,13 @@ export async function authenticate(server: string, mode: 'login' | 'register', u
   saveToken(r.token);
   return r.account;
 }
-export const me = (s: string) => call<{ account: AccountView }>(s, '/me').then((r) => r.account);
+export const me = (s: string) => call<{ account: AccountView }>(s, '/me').then((r) => { setEquipped(r.account.cosmetics?.equipped); return r.account; });
 export const shop = (s: string) => call<ShopInfo>(s, '/shop', 'GET', undefined, false);
 export const buy = (s: string, item: string) => call<{ account: AccountView }>(s, '/shop/buy', 'POST', { item, qty: 1 }).then((r) => r.account);
+export const equip = (s: string, item: string, on = true) => call<{ account: AccountView }>(s, on ? '/equip' : '/unequip', 'POST', { item }).then((r) => { setEquipped(r.account.cosmetics?.equipped); return r.account; });
 export const train = (s: string, char: string) => call<{ account: AccountView }>(s, '/train', 'POST', { char }).then((r) => r.account);
 export const checkin = (s: string) => call<{ account: AccountView; bonus: number }>(s, '/checkin', 'POST');
-export async function logout(s: string) { try { await call(s, '/logout', 'POST'); } catch { /* ignore */ } saveToken(''); }
+export async function logout(s: string) { try { await call(s, '/logout', 'POST'); } catch { /* ignore */ } saveToken(''); setEquipped(null); }
 
 /** 联机入座前取票据；未登录返回 null（匿名入座，沿用本地档案 id） */
 export async function fetchTicket(server: string): Promise<{ ticket: string; accountId: string } | null> {

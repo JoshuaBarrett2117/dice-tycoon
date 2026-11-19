@@ -1,5 +1,5 @@
 import './style.css';
-import { ITEMS, BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
 import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, loadBoard, saveBoard, pushHistory, saveProfile, saveTheme } from './core/store';
 import * as A from './account';
 import { AU } from './audio/audio';
@@ -31,6 +31,8 @@ const prefs = {
   difficulty: ((): BotDifficulty => { const v = localStorage.getItem('dt.diff'); return v === 'easy' || v === 'hard' ? v : 'normal'; })(),
 };
 const accountId = profile.id;
+// v1.6：已登录则静默刷新当前装备（外观 / 骰子皮肤），失败沿用本地缓存
+if (A.savedToken()) void A.me(prefs.server).catch(() => {});
 
 let world: World | null = null;
 let worldReady: Promise<void> = Promise.resolve();
@@ -58,7 +60,7 @@ function showMenu(msg = '') {
       <label>昵称 <input id="nm" maxlength="12" value="${prefs.name}"></label>
       <div class="chars">${CHAR_IDS.map((c) => `
         <button class="ch ${c === prefs.charId ? 'on' : ''}" data-c="${c}" style="--c:${CHARACTERS[c].color}">
-          <img src="${charUrl(c)}" alt=""><b>${CHARACTERS[c].name}</b><small>${CHARACTERS[c].skill}</small>
+          <img src="${charUrl(c, true)}" alt=""><b>${CHARACTERS[c].name}</b><small>${CHARACTERS[c].skill}</small>
         </button>`).join('')}</div>
       <label>单机机器人难度 <select id="diff">${(['easy', 'normal', 'hard'] as const).map((d) => `<option value="${d}" ${d === prefs.difficulty ? 'selected' : ''}>${{ easy: '简单', normal: '普通', hard: '困难' }[d]}</option>`).join('')}</select></label>
       <label>棋盘主题 <select id="theme">${THEME_IDS.map((t) => `<option value="${t}" ${t === loadTheme() ? 'selected' : ''}>${THEMES[t].name}</option>`).join('')}</select></label>
@@ -117,6 +119,7 @@ function showMenu(msg = '') {
 /** 已登录则带票据入座（accountId 以票据为准）；未登录沿用本地档案 id。票据失效会抛错，由调用方回主菜单提示重新登录 */
 async function authOpts(): Promise<{ accountId: string; ticket?: string }> {
   if (!A.savedToken()) return { accountId };
+  try { await A.me(prefs.server); } catch { /* 沿用缓存 */ }
   try {
     const t = await A.fetchTicket(prefs.server);
     return t ? { accountId: t.accountId, ticket: t.ticket } : { accountId };
@@ -144,20 +147,25 @@ async function showAccount(note = '') {
   } else {
     let info: A.ShopInfo | null = null;
     try { info = await A.shop(prefs.server); } catch { /* 商城暂不可用 */ }
-    const names = (id: string) => (ITEMS as Record<string, { name: string }>)[id]?.name || id;
+    const own = new Set(acc.cosmetics?.owned || []), eqv = Object.values(acc.cosmetics?.equipped || {});
+    const shopHtml = (info?.categories || []).filter((c) => c.items.length).map((c) => `<div class="hint">${esc(c.name)}：</div><div class="subbtns">${c.items.map((i) => own.has(i.id)
+      ? `<button data-eq="${i.id}" data-on="${eqv.includes(i.id) ? 0 : 1}">${esc(i.name)} · ${eqv.includes(i.id) ? '已装备（点击卸下）' : '已拥有（点击装备）'}</button>`
+      : `<button data-buy="${i.id}">${esc(i.name)} ¥${i.price}</button>`).join('')}</div>`).join('') || '<div class="hint">商城暂无在售商品</div>';
+    const names = (id: string) => info?.categories?.flatMap((c) => c.items).find((i) => i.id === id)?.name || id;
     o.innerHTML = `<div class="panel"><div class="ttl">账号 · ${esc(acc.username)}</div>
       <div class="hint">金币 <b>${acc.coins}</b> · <button id="ck">每日签到 +50</button></div>
       <div class="hint">联机段位：<b>${A.tierOf(acc.rating || 0)}</b>（${acc.rating || 0} 分）· ${acc.games || 0} 局 ${acc.wins || 0} 胜 · <button id="lb">排行榜</button></div>
       <div class="hint">角色养成${info ? `（训练：${info.train.cost} 金币 → ${info.train.exp} 经验）` : ''}：</div>
       <div class="subbtns">${CHAR_IDS.map((c) => { const p = acc!.chars[c] || { exp: 0, level: 1 }; return `<button data-tr="${c}">${CHARACTERS[c].name} Lv${p.level}（${p.exp} 经验）</button>`; }).join('')}</div>
-      <div class="hint">商城：</div>
-      <div class="subbtns">${(info?.items || []).map((i) => `<button data-buy="${i.id}">${esc(i.name)} ¥${i.price}（持有 ${acc!.items[i.id] || 0}）</button>`).join('') || '商城暂无在售商品（对局道具卡仅在对局内出现和使用）'}</div>
+      <div class="hint">商城（金币购买；对局道具卡仅在对局内出现和使用）：</div>
+      ${shopHtml}
       <div class="msg">${esc(note)}</div>
       <div class="subbtns">${back}<button id="lo">退出登录</button></div></div>`;
     const act = (fn: () => Promise<string>) => async () => { try { void showAccount(await fn()); } catch (e) { void showAccount((e as Error).message); } };
     o.querySelector<HTMLButtonElement>('#ck')!.onclick = act(async () => `签到成功，+${(await A.checkin(prefs.server)).bonus} 金币`);
     o.querySelectorAll<HTMLButtonElement>('[data-tr]').forEach((b) => (b.onclick = act(async () => { await A.train(prefs.server, b.dataset.tr!); return '训练完成'; })));
     o.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((b) => (b.onclick = act(async () => { await A.buy(prefs.server, b.dataset.buy!); return `已购买 ${names(b.dataset.buy!)}`; })));
+    o.querySelectorAll<HTMLButtonElement>('[data-eq]').forEach((b) => (b.onclick = act(async () => { const on = b.dataset.on === '1'; await A.equip(prefs.server, b.dataset.eq!, on); return `${on ? '已装备' : '已卸下'} ${names(b.dataset.eq!)}`; })));
     o.querySelector<HTMLButtonElement>('#lb')!.onclick = () => void showBoard('rating');
     o.querySelector<HTMLButtonElement>('#lo')!.onclick = async () => { await A.logout(prefs.server); void showAccount('已退出登录'); };
   }

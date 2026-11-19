@@ -2,6 +2,7 @@
 import { icon } from './icons';
 import { GLOBAL_EVENTS, ZONES, zoneOfPower, type GlobalEventId, type Pending } from '@dt/shared';
 import { AU } from '../audio/audio';
+import { diceSkin } from '../cosmetics';
 import { sleep } from '../core/tween';
 
 export interface HudPlayer { name: string; charName: string; color: string; img: string; isMe: boolean }
@@ -301,6 +302,7 @@ export class Hud {
     this.hideRoll();
     AU.play('dice');
     const d = $(this.stage, '#dice'), d1 = $(this.stage, '#d1'), d2 = $(this.stage, '#d2');
+    d.className = diceSkin() ? `dk-${diceSkin()}` : '';
     d.style.display = 'block';
     const an = (el: HTMLElement, s: number) => el.animate([
       { transform: `translate(${s * 40}px,120px) scale(.4) rotate(0)`, opacity: 0 },
