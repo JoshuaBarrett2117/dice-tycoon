@@ -73,7 +73,7 @@ export class LocalSource implements GameSource {
 // ───────────────────────── 在线 ─────────────────────────
 export interface LobbyMsg { seats: LobbySeat[]; hostSessionId: string | null; roomId: string; started: boolean; quick?: QuickStatus; board?: BoardId }
 
-export interface JoinOpts { name: string; charId: CharId; accountId?: string; board?: BoardId }
+export interface JoinOpts { name: string; charId: CharId; accountId?: string; ticket?: string; board?: BoardId }
 
 export class NetSource implements GameSource {
   mySeat = -1;

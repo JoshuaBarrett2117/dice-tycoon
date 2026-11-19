@@ -4,6 +4,7 @@ import {
   ActionGuard, BOT_DEFAULT_DIFFICULTY, MatchQueue, buildMatchSummary, checkReplayConsistency, classifyReject, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type BoardId, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
 } from '@dt/shared';
+import { checkTicket } from '../ticket';
 import { registry } from '../registry';
 import { track } from '../telemetry';
 
@@ -70,10 +71,14 @@ export class MatchRoom extends Room {
   onJoin(client: Client, options: Partial<JoinOptions> = {}) {
     if (options.spectate) { this.joinSpectator(client); return; }
     if (this.game) throw new Error('对局已开始');
+    // 票据校验（业务服签发）：带了票据就必须有效；TICKET_REQUIRED=1 时不带票据也拒绝；单机对机器人不经过这里
+    const verified = checkTicket(options.ticket);
+    if (!verified.ok) throw new Error(verified.message);
     if (this.seats.filter((x) => !x.isBot).length >= 4) throw new Error('房间已满');
     const charId: CharId = CHAR_IDS.includes(options.charId as CharId) ? (options.charId as CharId) : 'jin';
     const name = String(options.name || '玩家').slice(0, 12);
-    if (typeof options.accountId === 'string' && options.accountId) this.accounts.set(client.sessionId, options.accountId.slice(0, 64));
+    const claimed = verified.accountId ?? (typeof options.accountId === 'string' ? options.accountId : '');
+    if (claimed) this.accounts.set(client.sessionId, claimed.slice(0, 64)); // 有票据时以票据里的 accountId 为准
     this.seats.push({ sessionId: client.sessionId, name, charId, isBot: false, ready: true, connected: true });
     if (!this.host) this.host = client.sessionId;
     if (this.queue) this.queue.join(client.sessionId, Date.now());

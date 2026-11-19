@@ -36,6 +36,29 @@ function serveApi(req: IncomingMessage, res: ServerResponse): boolean {
   return true;
 }
 
+/** /api/account/*：反向代理到业务服（ACCOUNT_URL，如 http://account:8080），网页与业务服同源，免跨域 */
+const accountUrl = (process.env.ACCOUNT_URL || '').replace(/\/$/, '');
+function proxyAccount(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!(req.url || '').startsWith('/api/account/')) return false;
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type, authorization' };
+  if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return true; }
+  if (!accountUrl) { res.writeHead(503, { ...cors, 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: '未配置业务服（ACCOUNT_URL）' })); return true; }
+  const chunks: Buffer[] = [];
+  req.on('data', (c: Buffer) => { if (chunks.reduce((n, x) => n + x.length, 0) < 1 << 15) chunks.push(c); });
+  req.on('end', async () => {
+    try {
+      const headers: Record<string, string> = { 'content-type': req.headers['content-type'] || 'application/json' };
+      if (req.headers.authorization) headers.authorization = String(req.headers.authorization);
+      const r = await fetch(accountUrl + req.url, { method: req.method, headers, body: req.method === 'GET' || req.method === 'HEAD' ? undefined : Buffer.concat(chunks), signal: AbortSignal.timeout(8000) });
+      res.writeHead(r.status, { ...cors, 'content-type': r.headers.get('content-type') || 'application/json', 'cache-control': 'no-store' });
+      res.end(Buffer.from(await r.arrayBuffer()));
+    } catch {
+      res.writeHead(502, { ...cors, 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: '业务服暂不可用' }));
+    }
+  });
+  return true;
+}
+
 function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
   if (!staticDir || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
   const url = decodeURIComponent((req.url || '/').split('?')[0]);
@@ -66,7 +89,7 @@ await server.listen(port);
 const colyseusHandlers = http.listeners('request') as ((req: IncomingMessage, res: ServerResponse) => void)[];
 http.removeAllListeners('request');
 http.on('request', (req, res) => {
-  if (serveApi(req, res) || serveStatic(req, res)) return;
+  if (proxyAccount(req, res) || serveApi(req, res) || serveStatic(req, res)) return;
   for (const h of colyseusHandlers) h(req, res);
 });
 

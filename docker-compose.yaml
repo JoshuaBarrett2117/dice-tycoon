@@ -1,13 +1,38 @@
 # 《掷富天下》一键部署：docker compose up -d 后打开 http://<主机IP>:2567
+# 业务服（账号/养成/商城/票据）与对战服同一默认网桥（links 互通）；网页经对战服 /api/account/* 反代访问业务服。
+# 密钥不进仓库：在同目录 .env 里写 TICKET_KEYS=kid:一段足够长的随机串（轮换时在前面加新的，如 k2:新,k1:旧）、INTERNAL_TOKEN=另一段随机串
 services:
   dice-tycoon:
     image: joshualoooooo/dice-tycoon:latest
     container_name: dice-tycoon
     restart: unless-stopped
-    # 用默认网桥，不额外创建网络（NAS 上 Docker 子网池容易用完）
+    # 用默认网桥，不额外创建网络（NAS 上 Docker 子网池容易用完）；用 links 让对战服按名字找到业务服
     network_mode: bridge
+    links:
+      - account
     ports:
       - "2567:2567"   # 左边可改成任意空闲端口
     environment:
       - TZ=Asia/Shanghai
       - PORT=2567
+      - ACCOUNT_URL=http://account:8080
+      - TICKET_KEYS=${TICKET_KEYS:?请在 .env 设置 TICKET_KEYS}
+      # 设为 1 则联机必须登录；默认 0：未登录也可匿名联机，带了票据则必须有效
+      - TICKET_REQUIRED=${TICKET_REQUIRED:-0}
+    depends_on:
+      - account
+  account:
+    image: joshualoooooo/dice-tycoon-account:latest
+    build: ./apps/account
+    container_name: dice-tycoon-account
+    restart: unless-stopped
+    # 不对外暴露端口，只被对战服经 links 访问
+    network_mode: bridge
+    environment:
+      - TZ=Asia/Shanghai
+      - TICKET_KEYS=${TICKET_KEYS:?请在 .env 设置 TICKET_KEYS}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
+    volumes:
+      - account-data:/data
+volumes:
+  account-data:

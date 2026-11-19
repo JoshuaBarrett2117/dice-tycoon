@@ -1,6 +1,7 @@
 import './style.css';
-import { BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { ITEMS, BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
 import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, loadBoard, saveBoard, pushHistory, saveProfile, saveTheme } from './core/store';
+import * as A from './account';
 import { AU } from './audio/audio';
 import { Director, charUrl } from './game/Director';
 import { NetSource, LocalSource, ReplaySource, type GameSource, type LobbyMsg } from './net/source';
@@ -68,7 +69,7 @@ function showMenu(msg = '') {
         <button class="big green" id="quick">快速匹配<small>凑满 4 人开局，超时机器人补位</small></button>
       </div>
       <div class="join"><input id="rid" placeholder="输入房间号加入"><button id="joinb">加入</button></div>
-      <div class="subbtns"><button id="watch">观战列表</button><button id="prof">档案与历史</button><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
+      <div class="subbtns"><button id="watch">观战列表</button><button id="prof">档案与历史</button><button id="acct">账号</button><label class="fbtn">导入回放 JSON<input id="rfile" type="file" accept=".json,application/json" hidden></label></div>
       <details><summary>服务器</summary><input id="srv" value="${prefs.server}"></details>
       <div class="msg">${msg}</div>
     </div>`;
@@ -95,6 +96,7 @@ function showMenu(msg = '') {
   m.querySelector<HTMLButtonElement>('#quick')!.onclick = () => { save(); void startQuick(); };
   m.querySelector<HTMLButtonElement>('#watch')!.onclick = () => { save(); showRooms(); };
   m.querySelector<HTMLButtonElement>('#prof')!.onclick = () => { save(); showProfile(); };
+  m.querySelector<HTMLButtonElement>('#acct')!.onclick = () => { save(); void showAccount(); };
   m.querySelector<HTMLInputElement>('#rfile')!.onchange = async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -109,6 +111,55 @@ function showMenu(msg = '') {
     const id = m.querySelector<HTMLInputElement>('#rid')!.value.trim();
     if (id) void startOnline(id);
   };
+}
+
+// ───────────────────────── 账号（业务服）─────────────────────────
+/** 已登录则带票据入座（accountId 以票据为准）；未登录沿用本地档案 id。票据失效会抛错，由调用方回主菜单提示重新登录 */
+async function authOpts(): Promise<{ accountId: string; ticket?: string }> {
+  if (!A.savedToken()) return { accountId };
+  try {
+    const t = await A.fetchTicket(prefs.server);
+    return t ? { accountId: t.accountId, ticket: t.ticket } : { accountId };
+  } catch (e) { throw new Error(`账号登录已失效，请在「账号」里重新登录（${(e as Error).message}）`); }
+}
+
+async function showAccount(note = '') {
+  const o = overlay('lobby');
+  const back = '<button id="back">返回</button>';
+  let acc: A.AccountView | null = null;
+  if (A.savedToken()) { try { acc = await A.me(prefs.server); } catch (e) { note = note || (e as Error).message; } }
+  if (!acc) {
+    o.innerHTML = `<div class="panel"><div class="ttl">账号</div>
+      <div class="hint">登录后联机入座自动带业务服票据；单机对机器人与本地档案不受影响。</div>
+      <div class="form"><label>用户名 <input id="u" maxlength="20" autocomplete="username"></label>
+      <label>密码 <input id="p" type="password" maxlength="72" autocomplete="current-password"></label></div>
+      <div class="btns"><button class="big gold" id="li">登录</button><button class="big blue" id="rg">注册</button></div>
+      <div class="msg">${esc(note)}</div>${back}</div>`;
+    const go = (mode: 'login' | 'register') => async () => {
+      const u = o.querySelector<HTMLInputElement>('#u')!.value.trim(), p = o.querySelector<HTMLInputElement>('#p')!.value;
+      try { await A.authenticate(prefs.server, mode, u, p); void showAccount(); } catch (e) { void showAccount((e as Error).message); }
+    };
+    o.querySelector<HTMLButtonElement>('#li')!.onclick = go('login');
+    o.querySelector<HTMLButtonElement>('#rg')!.onclick = go('register');
+  } else {
+    let info: A.ShopInfo | null = null;
+    try { info = await A.shop(prefs.server); } catch { /* 商城暂不可用 */ }
+    const names = (id: string) => (ITEMS as Record<string, { name: string }>)[id]?.name || id;
+    o.innerHTML = `<div class="panel"><div class="ttl">账号 · ${esc(acc.username)}</div>
+      <div class="hint">金币 <b>${acc.coins}</b> · <button id="ck">每日签到 +50</button></div>
+      <div class="hint">角色养成${info ? `（训练：${info.train.cost} 金币 → ${info.train.exp} 经验）` : ''}：</div>
+      <div class="subbtns">${CHAR_IDS.map((c) => { const p = acc!.chars[c] || { exp: 0, level: 1 }; return `<button data-tr="${c}">${CHARACTERS[c].name} Lv${p.level}（${p.exp} 经验）</button>`; }).join('')}</div>
+      <div class="hint">商城：</div>
+      <div class="subbtns">${(info?.items || []).map((i) => `<button data-buy="${i.id}">${esc(i.name)} ¥${i.price}（持有 ${acc!.items[i.id] || 0}）</button>`).join('') || '商城暂不可用'}</div>
+      <div class="msg">${esc(note)}</div>
+      <div class="subbtns">${back}<button id="lo">退出登录</button></div></div>`;
+    const act = (fn: () => Promise<string>) => async () => { try { void showAccount(await fn()); } catch (e) { void showAccount((e as Error).message); } };
+    o.querySelector<HTMLButtonElement>('#ck')!.onclick = act(async () => `签到成功，+${(await A.checkin(prefs.server)).bonus} 金币`);
+    o.querySelectorAll<HTMLButtonElement>('[data-tr]').forEach((b) => (b.onclick = act(async () => { await A.train(prefs.server, b.dataset.tr!); return '训练完成'; })));
+    o.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((b) => (b.onclick = act(async () => { await A.buy(prefs.server, b.dataset.buy!); return `已购买 ${names(b.dataset.buy!)}`; })));
+    o.querySelector<HTMLButtonElement>('#lo')!.onclick = async () => { await A.logout(prefs.server); void showAccount('已退出登录'); };
+  }
+  o.querySelector<HTMLButtonElement>('#back')!.onclick = () => showMenu();
 }
 
 // ───────────────────────── 档案与历史 ─────────────────────────
@@ -163,7 +214,7 @@ async function startOnline(roomId?: string) {
   o.innerHTML = '<div class="panel"><div class="ttl">连接中…</div></div>';
   let net: NetSource;
   try {
-    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId, accountId, ...(roomId ? {} : { board: loadBoard() }) }, roomId);
+    net = await NetSource.connect(prefs.server, { name: prefs.name, charId: prefs.charId, ...(await authOpts()), ...(roomId ? {} : { board: loadBoard() }) }, roomId);
   } catch (err) {
     showMenu(`连接失败：${(err as Error).message || err}（请确认对战服已启动）`);
     return;
@@ -201,7 +252,7 @@ async function startQuick() {
   o.innerHTML = '<div class="panel"><div class="ttl">正在寻找对局…</div></div>';
   let net: NetSource;
   try {
-    net = await NetSource.connectQuick(prefs.server, { name: prefs.name, charId: prefs.charId, accountId });
+    net = await NetSource.connectQuick(prefs.server, { name: prefs.name, charId: prefs.charId, ...(await authOpts()) });
   } catch (err) {
     showMenu(`匹配失败：${(err as Error).message || err}（请确认对战服已启动）`);
     return;

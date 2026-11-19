@@ -9,9 +9,9 @@ import type { GameRecord } from './replay';
 
 export const ROOM_NAME = 'match';
 
-/** accountId 为预留字段：对战服只携带、不校验（本期无登录体系） */
+/** accountId：无票据时只透传不校验；带 ticket（业务服签发）时对战服校验签名与有效期，并以票据内 accountId 为准 */
 export interface JoinOptions {
-  name: string; charId: CharId; accountId?: string;
+  name: string; charId: CharId; accountId?: string; ticket?: string;
   /** 以观战者身份加入进行中的房间：不占座位、不参与行动，只收 sync / replay */
   spectate?: boolean;
   /** 快速匹配：用 joinOrCreate 进入匹配房，凑满 4 人或超时由机器人补位后自动开局 */

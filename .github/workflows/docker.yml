@@ -10,6 +10,7 @@ on:
 
 env:
   IMAGE: docker.io/joshualoooooo/dice-tycoon
+  IMAGE_ACCOUNT: docker.io/joshualoooooo/dice-tycoon-account
 
 jobs:
   test:
@@ -23,6 +24,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - run: go vet ./... && go test ./...
+        working-directory: apps/account
 
   docker:
     needs: test
@@ -53,3 +59,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  docker-account:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME || 'joshualoooooo' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_ACCOUNT }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/account
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
