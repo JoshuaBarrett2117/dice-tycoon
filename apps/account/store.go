@@ -22,7 +22,10 @@ const (
 	maxLevel    = 20
 )
 
-var CharIDs = []string{"jin", "li", "wang", "xing", "panda", "rock"}
+var CharIDs = []string{"jin", "li", "wang", "xing", "panda", "rock", "tang"}
+
+// PaidChars 付费角色：需在商城购买（商品 id = "char_"+角色）后方可选用；其余为免费角色。
+var PaidChars = map[string]bool{"tang": true}
 
 // ItemValues 仅供排行榜 assets 内部估值（与对战服 ITEM_IDS 对应）；道具卡已从商城下架，不可购买。
 var ItemValues = []ShopItem{

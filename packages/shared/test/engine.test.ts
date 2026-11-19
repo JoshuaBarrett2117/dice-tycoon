@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD, GLOBAL_EVENT_IDS, GROUPS, ISLAND_INDEX, RULES, TOURS, ZONES,
-  CHARACTERS, MATCH, SPECIAL_TILES, THEMES, THEME_IDS, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
+  CHARACTERS, FREE_CHAR_IDS, PAID_CHAR_IDS, MATCH, SPECIAL_TILES, THEMES, THEME_IDS, MatchQueue, ReplayPlayer, ReplayRecorder, SPECTATE, actorOf, applyAction, botAction, buildCost, createGame, groupSetOwner, investedValue, migrateState, monopolyOf, mortgageValue, redeemCost, replayGame, takeoverCost, tollOf, totalAssets, upgradeOptions,
   type BotDifficulty, type GameState, type SeatConfig,
 } from '../src';
 
@@ -1352,5 +1352,50 @@ describe('v1.1 第二张棋盘', () => {
       expect(json.board).toBe(board === 'island' ? 'island' : undefined);
       expect(replayGame(json).state).toEqual(s);
     }
+  });
+});
+
+describe('v1.7 付费角色：锦鲤阿棠（tang）', () => {
+  const TSEATS: SeatConfig[] = [
+    { id: 'a', name: '棠', charId: 'tang' },
+    { id: 'b', name: 'b', charId: 'li' },
+    { id: 'c', name: 'c', charId: 'wang' },
+    { id: 'd', name: 'd', charId: 'xing' },
+  ];
+  const pass = (s: GameState) => {
+    const c = structuredClone(s);
+    c.seats[0].pos = 30; c.seats[0].forcedSum = 4; c.turn = 0; c.phase = 'roll'; c.pending = null;
+    return ok(c, 0, { type: 'roll', zone: 0 });
+  };
+  const salaryOf = (r: ReturnType<typeof pass>) => { const e = r.events.find((x) => x.t === 'salary'); return e && e.t === 'salary' ? e.amount : -1; };
+  it('被动：月薪 30 万 → 45 万；免费角色不变', () => {
+    expect(CHARACTERS.tang.salaryBonus).toBe(0.5);
+    expect(salaryOf(pass(createGame({ seed: 5, seats: TSEATS })))).toBe(45);
+    expect(salaryOf(pass(createGame({ seed: 5, seats: TSEATS.map((x, i) => (i ? x : { ...x, charId: 'jin' as const })) })))).toBe(RULES.salary);
+  });
+  it('锦鲤附体：下次过起点月薪 90 万且只生效一次；冷却 5 回合', () => {
+    const s0 = createGame({ seed: 6, seats: TSEATS });
+    const r = ok(s0, 0, { type: 'useSkill' });
+    expect(r.state.seats[0].doubleSalary).toBe(true);
+    expect(r.state.seats[0].skillCd).toBe(RULES.skillCooldown);
+    expect(RULES.skillCooldown).toBe(5);
+    const r2 = pass(r.state);
+    expect(salaryOf(r2)).toBe(90);
+    expect(r2.state.seats[0].doubleSalary).toBe(false);
+    const r3 = pass(r2.state);
+    expect(salaryOf(r3)).toBe(45);
+    expect(applyAction(r.state, 0, { type: 'useSkill' }).ok).toBe(false);
+  });
+  it('机器人选用 tang 的整局回放一致', () => {
+    const cfg = { seed: 21, seats: TSEATS.map((x) => ({ ...x, isBot: true })) };
+    let s = createGame(cfg);
+    const rec = new ReplayRecorder(cfg);
+    while (s.phase !== 'ended') { const who = actorOf(s), a = botAction(s, who); const r = ok(s, who, a); rec.push(who, a); s = r.state; }
+    expect(replayGame(JSON.parse(JSON.stringify(rec.toRecord(s)))).state).toEqual(s);
+  });
+  it('FREE/PAID 角色划分', () => {
+    expect(PAID_CHAR_IDS).toEqual(['tang']);
+    expect(FREE_CHAR_IDS).toHaveLength(6);
+    expect(FREE_CHAR_IDS).not.toContain('tang');
   });
 });

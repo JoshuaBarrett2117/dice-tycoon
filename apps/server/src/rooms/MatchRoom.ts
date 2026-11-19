@@ -1,10 +1,11 @@
 import { Room, type Client } from '@colyseus/core';
 import {
-  BOARD_DEFAULT, BOARD_IDS, CHARACTERS, CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
+  BOARD_DEFAULT, BOARD_IDS, CHARACTERS, CHAR_IDS, FREE_CHAR_IDS, SPECTATE, TURN_TIMEOUT_MS,
   ActionGuard, BOT_DEFAULT_DIFFICULTY, MatchQueue, buildMatchSummary, checkReplayConsistency, classifyReject, ReplayRecorder, actorOf, animBudget, applyAction, botAction, createGame, openingEvents,
   type Action, type BoardId, type CharId, type GameEvent, type GameState, type JoinOptions, type LobbySeat, type RoomBrief,
 } from '@dt/shared';
 import { checkTicket } from '../ticket';
+import { checkCharAllowed } from '../owns';
 import { registry } from '../registry';
 import { track } from '../telemetry';
 import { buildResults, postSettle } from '../settle';
@@ -71,14 +72,18 @@ export class MatchRoom extends Room {
     });
   }
 
-  onJoin(client: Client, options: Partial<JoinOptions> = {}) {
+  async onJoin(client: Client, options: Partial<JoinOptions> = {}) {
     if (options.spectate) { this.joinSpectator(client); return; }
     if (this.game) throw new Error('对局已开始');
     // 票据校验（业务服签发）：带了票据就必须有效；TICKET_REQUIRED=1 时不带票据也拒绝；单机对机器人不经过这里
     const verified = checkTicket(options.ticket);
     if (!verified.ok) throw new Error(verified.message);
-    if (this.seats.filter((x) => !x.isBot).length >= 4) throw new Error('房间已满');
     const charId: CharId = CHAR_IDS.includes(options.charId as CharId) ? (options.charId as CharId) : 'jin';
+    // 付费角色：仅票据验证过且已购的账号可入座（异步查业务服；查完后再检查房间状态）
+    const allowed = await checkCharAllowed(charId, verified.accountId);
+    if (!allowed.ok) throw new Error(allowed.message);
+    if (this.game) throw new Error('对局已开始');
+    if (this.seats.filter((x) => !x.isBot).length >= 4) throw new Error('房间已满');
     const name = String(options.name || '玩家').slice(0, 12);
     const claimed = verified.accountId ?? (typeof options.accountId === 'string' ? options.accountId : '');
     if (claimed) this.accounts.set(client.sessionId, claimed.slice(0, 64)); // 有票据时以票据里的 accountId 为准
@@ -165,7 +170,7 @@ export class MatchRoom extends Room {
     const used = new Set(this.seats.map((s) => s.charId));
     let b = 0;
     while (this.seats.length < 4) {
-      const charId = CHAR_IDS.find((c) => !used.has(c)) ?? 'panda';
+      const charId = FREE_CHAR_IDS.find((c) => !used.has(c)) ?? 'panda';
       used.add(charId);
       this.seats.push({ sessionId: null, name: BOT_NAMES[b++] ?? `机器人${b}`, charId, isBot: true, ready: true, connected: true });
     }

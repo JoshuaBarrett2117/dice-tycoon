@@ -40,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/account/season", s.seasonInfo)
 	mux.HandleFunc("POST /internal/grant", s.grant)
 	mux.HandleFunc("POST /internal/settle", s.settle)
+	mux.HandleFunc("GET /internal/owns", s.owns)
 	return mux
 }
 
@@ -287,4 +288,18 @@ func (s *Server) equip(on bool) authedFn {
 		}
 		writeJSON(w, 200, map[string]any{"account": v})
 	}
+}
+
+// owns 对战服入座时校验账号是否可用某角色（需 INTERNAL_TOKEN）：GET /internal/owns?account=..&char=.. → {"owned":bool}
+func (s *Server) owns(w http.ResponseWriter, r *http.Request) {
+	if !s.internalOK(r) {
+		http.NotFound(w, r)
+		return
+	}
+	ok, err := s.st.OwnsChar(r.URL.Query().Get("account"), r.URL.Query().Get("char"))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"owned": ok})
 }

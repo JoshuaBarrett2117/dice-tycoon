@@ -3,10 +3,10 @@ package main
 import "sort"
 
 // v1.6 装饰商品：角色 / 角色外观 / 骰子皮肤。与对局道具卡（ItemValues，已下架）彻底分开。
-// 新角色上架：往 cosmeticCatalog 追加 Kind=KindChar 的条目即可（本期不含新角色）。
+// 新角色上架：往 PaidChars 加入角色并往 buildCatalog 追加 Kind=KindChar 的条目（id 为 char_<角色>）。
 
 const (
-	KindChar = "char" // 角色（预留，本期无在售）
+	KindChar = "char" // 角色（付费角色，商品 id 为 char_<角色>）
 	KindSkin = "skin" // 角色外观（Char 指向所属角色）
 	KindDice = "dice" // 骰子皮肤
 )
@@ -21,14 +21,19 @@ type Cosmetic struct {
 	Char  string `json:"char,omitempty"`
 }
 
-var charNames = map[string]string{"jin": "金大宝", "li": "李小橙", "wang": "王小萌", "xing": "星星", "panda": "熊猫", "rock": "磐石"}
+var charNames = map[string]string{"jin": "金大宝", "li": "李小橙", "wang": "王小萌", "xing": "星星", "panda": "熊猫", "rock": "磐石", "tang": "锦鲤阿棠"}
 
 var cosmeticCatalog = buildCatalog()
 
 func buildCatalog() []Cosmetic {
 	prices := map[string]int{"jin": 200, "li": 150, "wang": 180, "xing": 250, "panda": 220, "rock": 300}
 	var c []Cosmetic
+	// v1.7 付费角色（提案值 500 金币 ≈ 8–10 场联机第一名奖励）
+	c = append(c, Cosmetic{ID: "char_tang", Kind: KindChar, Name: "锦鲤阿棠", Price: 500, Char: "tang"})
 	for _, ch := range CharIDs {
+		if PaidChars[ch] {
+			continue // 付费角色暂无外观
+		}
 		c = append(c, Cosmetic{ID: "skin_" + ch, Kind: KindSkin, Name: charNames[ch] + "·幻彩外观", Price: prices[ch], Char: ch})
 	}
 	c = append(c,
@@ -151,4 +156,27 @@ func (s *Store) Equip(id, item string, on bool) (Account, error) {
 		delete(a.Cosmetics.Equipped, slotOf(c))
 	}
 	return clone(a), s.saveLocked()
+}
+
+// OwnsChar 免费角色人人可用；付费角色需已购 char_<角色>。
+func (c *Cosmetics) OwnsChar(char string) bool {
+	return !PaidChars[char] || c.has("char_"+char)
+}
+
+// OwnsChar 供对战服入座校验：账号不存在返回 ErrNotFound，未知角色 ErrInvalid。
+func (s *Store) OwnsChar(id, char string) (bool, error) {
+	known := false
+	for _, c := range CharIDs {
+		known = known || c == char
+	}
+	if !known {
+		return false, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.byID[id]
+	if !ok {
+		return false, ErrNotFound
+	}
+	return a.Cosmetics.OwnsChar(char), nil
 }

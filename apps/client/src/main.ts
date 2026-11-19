@@ -1,5 +1,5 @@
 import './style.css';
-import { BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
+import { BOARD_CFGS, BOARD_IDS, type BoardId, CHARACTERS, CHAR_IDS, FREE_CHAR_IDS, PAID_CHAR_IDS, THEMES, THEME_IDS, achievementView, applyDigest, computeStats, dailyView, digestRecord, entryFromRecord, type BotDifficulty, type ThemeId, type CharId, type GameRecord, type RoomBrief, type SeatConfig } from '@dt/shared';
 import { deleteHistory, loadHistory, loadQuests, saveQuests, loadProfile, loadReplay, loadTheme, loadBoard, saveBoard, pushHistory, saveProfile, saveTheme } from './core/store';
 import * as A from './account';
 import { AU } from './audio/audio';
@@ -50,6 +50,18 @@ async function boot() {
 }
 
 // ───────────────────────── 主菜单 ─────────────────────────
+/** 付费角色需登录且已购才可选；免费角色恒可选 */
+const charUnlocked = (c: CharId) => !PAID_CHAR_IDS.includes(c) || A.ownedChars.has(c);
+function charCards() {
+  if (!charUnlocked(prefs.charId)) prefs.charId = 'jin';
+  return CHAR_IDS.map((c) => {
+    const lock = !charUnlocked(c);
+    return `
+        <button class="ch ${c === prefs.charId ? 'on' : ''} ${lock ? 'locked' : ''}" data-c="${c}" style="--c:${CHARACTERS[c].color}">
+          <img src="${charUrl(c, !lock)}" alt=""><b>${CHARACTERS[c].name}${lock ? ' 🔒' : ''}</b><small>${lock ? '商城购买后解锁 · ' : ''}${CHARACTERS[c].skill}</small>
+        </button>`;
+  }).join('');
+}
 function showMenu(msg = '') {
   teardownGame();
   const m = overlay('menu');
@@ -58,10 +70,7 @@ function showMenu(msg = '') {
     <div class="tag">网页大富翁 · v0.4 开发版</div>
     <div class="form">
       <label>昵称 <input id="nm" maxlength="12" value="${prefs.name}"></label>
-      <div class="chars">${CHAR_IDS.map((c) => `
-        <button class="ch ${c === prefs.charId ? 'on' : ''}" data-c="${c}" style="--c:${CHARACTERS[c].color}">
-          <img src="${charUrl(c, true)}" alt=""><b>${CHARACTERS[c].name}</b><small>${CHARACTERS[c].skill}</small>
-        </button>`).join('')}</div>
+      <div class="chars">${charCards()}</div>
       <label>单机机器人难度 <select id="diff">${(['easy', 'normal', 'hard'] as const).map((d) => `<option value="${d}" ${d === prefs.difficulty ? 'selected' : ''}>${{ easy: '简单', normal: '普通', hard: '困难' }[d]}</option>`).join('')}</select></label>
       <label>棋盘主题 <select id="theme">${THEME_IDS.map((t) => `<option value="${t}" ${t === loadTheme() ? 'selected' : ''}>${THEMES[t].name}</option>`).join('')}</select></label>
       <label>棋盘 <select id="board">${BOARD_IDS.map((b) => `<option value="${b}" ${b === loadBoard() ? 'selected' : ''}>${BOARD_CFGS[b].name}</option>`).join('')}</select></label>
@@ -75,11 +84,18 @@ function showMenu(msg = '') {
       <details><summary>服务器</summary><input id="srv" value="${prefs.server}"></details>
       <div class="msg">${msg}</div>
     </div>`;
-  m.querySelectorAll<HTMLButtonElement>('.ch').forEach((b) => (b.onclick = () => {
-    prefs.charId = b.dataset.c as CharId;
+  const bindChars = () => m.querySelectorAll<HTMLButtonElement>('.ch').forEach((b) => (b.onclick = () => {
+    const c = b.dataset.c as CharId;
+    const msgEl = m.querySelector<HTMLElement>('.msg');
+    if (!charUnlocked(c)) { if (msgEl) msgEl.textContent = A.savedToken() ? `「${CHARACTERS[c].name}」尚未购买：到「账号 → 商城」用金币购买后即可选用` : `「${CHARACTERS[c].name}」是付费角色：登录账号并在商城购买后可用于联机（单机仅限 6 名免费角色）`; AU.unlock(); AU.play('click'); return; }
+    if (msgEl) msgEl.textContent = '';
+    prefs.charId = c;
     m.querySelectorAll('.ch').forEach((x) => x.classList.toggle('on', x === b));
     AU.unlock(); AU.play('click');
   }));
+  bindChars();
+  // 已登录：拉取已购角色后刷新选角卡（失败则保持锁定态）
+  if (A.savedToken()) void A.me(prefs.server).then(() => { const box = m.querySelector('.chars'); if (box) { box.innerHTML = charCards(); bindChars(); } }).catch(() => { /* 保持锁定 */ });
   m.querySelector<HTMLSelectElement>('#theme')!.onchange = (e) => {
     const id = (e.target as HTMLSelectElement).value as ThemeId;
     saveTheme(id); world?.setTheme(id); AU.unlock(); AU.play('click');
@@ -223,8 +239,9 @@ function showProfile(note = '') {
 
 // ───────────────────────── 单机 ─────────────────────────
 function startSolo() {
+  if (PAID_CHAR_IDS.includes(prefs.charId)) { showMenu('单机模式仅限 6 名免费角色，付费角色只能用于登录后的联机对战'); return; }
   closeOverlay();
-  const others = CHAR_IDS.filter((c) => c !== prefs.charId);
+  const others = FREE_CHAR_IDS.filter((c) => c !== prefs.charId);
   const seats: SeatConfig[] = [
     { id: 'me', name: prefs.name, charId: prefs.charId, accountId },
     { id: 'bot1', name: '阿柚', charId: others[0], isBot: true, difficulty: prefs.difficulty },

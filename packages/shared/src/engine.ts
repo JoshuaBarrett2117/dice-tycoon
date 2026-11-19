@@ -245,7 +245,7 @@ function walk(ctx: Ctx, seat: number, steps: number) {
 function paySalary(ctx: Ctx, seat: number) {
   const p = ctx.s.seats[seat];
   // 月薪：基数 × 全局事件（经济萧条）× 双倍月薪卡，最后取整
-  const amount = Math.round(RULES.salary * globalMods(ctx.s).salary * (p.doubleSalary ? RULES.doubleSalaryMult : 1));
+  const amount = Math.round(RULES.salary * (1 + (CHARACTERS[p.charId].salaryBonus ?? 0)) * globalMods(ctx.s).salary * (p.doubleSalary ? RULES.doubleSalaryMult : 1));
   p.doubleSalary = false;
   p.cash += amount;
   ctx.ev.push({ t: 'salary', seat, amount });
@@ -593,6 +593,7 @@ function useSkill(ctx: Ctx, seat: number): string | null {
     case 'li': p.liDiscount = true; break;
     case 'wang': p.wangToll = true; break;
     case 'xing': p.xingPerfect = true; break;
+    case 'tang': p.doubleSalary = true; break; // 锦鲤附体：下次过起点月薪 ×doubleSalaryMult（paySalary 结算后清零）
     case 'rock': {
       p.shield = true;
       const rich = s.seats.filter((q) => q.seat !== seat && !q.bankrupt).sort((a, b) => b.cash - a.cash || a.seat - b.seat)[0];

@@ -18,11 +18,11 @@ const BLD_H = [0, 52, 76, 100, 96];
 export const ASSET_LIST = [
   'bg.svg', 'c_start.svg', 'c_island.svg', 'c_fest.svg', 'c_air.svg',
   'bld1.svg', 'bld2.svg', 'bld3.svg', 'bld4.svg', 'coin.svg',
-  'char1.svg', 'char2.svg', 'char3.svg', 'char4.svg', 'char5.svg', 'char6.svg',
+  'char1.svg', 'char2.svg', 'char3.svg', 'char4.svg', 'char5.svg', 'char6.svg', 'char7.svg',
   'skin_jin.svg', 'skin_li.svg', 'skin_wang.svg', 'skin_xing.svg', 'skin_panda.svg', 'skin_rock.svg',
 ];
 
-export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5', rock: 'char6' };
+export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5', rock: 'char6', tang: 'char7' };
 
 export class World {
   app = new Application();

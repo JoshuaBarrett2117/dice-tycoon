@@ -101,7 +101,7 @@ export function preRollAction(s: GameState, seat: number): Action | null {
     // 小狸只在前方有可收购的他人城市时才用，其余角色冷却好了就用
     const ahead = (i: number) => { const d = (i - p.pos + BOARD_SIZE) % BOARD_SIZE; return d >= 2 && d <= 12; };
     const liOk = s.tiles.some((t, i) => t.owner != null && t.owner !== seat && t.lv < 4 && boardOf(s).tiles[i].kind === 'city' && ahead(i)) && cash >= 120;
-    if ((p.charId !== 'li' || liOk) && chance(s, seat, 4) < L.skillUse) tries.push({ type: 'useSkill' });
+    if ((p.charId !== 'li' || liOk) && !(p.charId === 'tang' && p.doubleSalary) && chance(s, seat, 4) < L.skillUse) tries.push({ type: 'useSkill' });
   }
   for (const a of tries) if (a && valid(a)) return a;
   return null;
