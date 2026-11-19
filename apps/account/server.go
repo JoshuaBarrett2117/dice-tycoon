@@ -180,7 +180,7 @@ func (s *Server) train(w http.ResponseWriter, r *http.Request, a *Account, tok s
 }
 
 func (s *Server) shop(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"items": ShopItems, "train": map[string]int{"cost": TrainCost, "exp": TrainExp, "expPerLevel": expPerLevel, "maxLevel": maxLevel}})
+	writeJSON(w, 200, map[string]any{"items": []ShopItem{}, "train": map[string]int{"cost": TrainCost, "exp": TrainExp, "expPerLevel": expPerLevel, "maxLevel": maxLevel}})
 }
 
 func (s *Server) buy(w http.ResponseWriter, r *http.Request, a *Account, tok string) {

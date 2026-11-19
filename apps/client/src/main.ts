@@ -151,7 +151,7 @@ async function showAccount(note = '') {
       <div class="hint">角色养成${info ? `（训练：${info.train.cost} 金币 → ${info.train.exp} 经验）` : ''}：</div>
       <div class="subbtns">${CHAR_IDS.map((c) => { const p = acc!.chars[c] || { exp: 0, level: 1 }; return `<button data-tr="${c}">${CHARACTERS[c].name} Lv${p.level}（${p.exp} 经验）</button>`; }).join('')}</div>
       <div class="hint">商城：</div>
-      <div class="subbtns">${(info?.items || []).map((i) => `<button data-buy="${i.id}">${esc(i.name)} ¥${i.price}（持有 ${acc!.items[i.id] || 0}）</button>`).join('') || '商城暂不可用'}</div>
+      <div class="subbtns">${(info?.items || []).map((i) => `<button data-buy="${i.id}">${esc(i.name)} ¥${i.price}（持有 ${acc!.items[i.id] || 0}）</button>`).join('') || '商城暂无在售商品（对局道具卡仅在对局内出现和使用）'}</div>
       <div class="msg">${esc(note)}</div>
       <div class="subbtns">${back}<button id="lo">退出登录</button></div></div>`;
     const act = (fn: () => Promise<string>) => async () => { try { void showAccount(await fn()); } catch (e) { void showAccount((e as Error).message); } };

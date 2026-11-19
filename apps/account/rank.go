@@ -82,7 +82,7 @@ type Settlement struct {
 
 func assetsOf(a *Account) int {
 	n := a.Coins
-	for _, it := range ShopItems {
+	for _, it := range ItemValues {
 		n += it.Price * a.Items[it.ID]
 	}
 	return n

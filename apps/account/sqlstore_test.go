@@ -106,7 +106,7 @@ func TestSQLiteConcurrentWrites(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := st.Buy(a.ID, "dice", 1); err != nil {
+			if _, err := st.Grant(a.ID, "jin", 1, 0); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -115,7 +115,7 @@ func TestSQLiteConcurrentWrites(t *testing.T) {
 	st.Close()
 	st2, _ := NewStore(p)
 	v, _ := st2.View(a.ID)
-	if v.Items["dice"] != 20 || v.Coins != 200+100000-20*120 {
+	if v.Coins != 200+100000+20 {
 		t.Fatalf("after concurrent %+v", v)
 	}
 	st2.Close()

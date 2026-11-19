@@ -164,19 +164,22 @@ func TestShopTrainCheckin(t *testing.T) {
 	s, _ := newSrv(t)
 	_, r := call(t, s, "POST", "/api/account/register", "", cred{"erin", "secret1"})
 	tok := r["token"].(string)
-	// 买 70 的免税卡 ×2 = 140，剩 60
-	c, r := call(t, s, "POST", "/api/account/shop/buy", tok, map[string]any{"item": "taxFree", "qty": 2})
-	acc := r["account"].(map[string]any)
-	if c != 200 || acc["coins"].(float64) != 60 || acc["items"].(map[string]any)["taxFree"].(float64) != 2 {
-		t.Fatalf("buy %d %v", c, r)
+	// 商城已下架：列表为空，购买一律 400 且金币/库存不变
+	c, r := call(t, s, "GET", "/api/account/shop", "", nil)
+	if c != 200 || len(r["items"].([]any)) != 0 {
+		t.Fatalf("shop should be empty: %d %v", c, r)
 	}
-	if c, _ = call(t, s, "POST", "/api/account/shop/buy", tok, map[string]any{"item": "dice", "qty": 1}); c != 402 {
-		t.Fatalf("poor should 402, got %d", c)
+	for _, id := range []string{"dice", "roadblock", "shield", "doubleToll", "demolish", "freeBuild", "teleport", "swap", "taxFree", "freeze", "nope"} {
+		c, r = call(t, s, "POST", "/api/account/shop/buy", tok, map[string]any{"item": id, "qty": 1})
+		if c != 400 || r["error"] == nil {
+			t.Fatalf("buy %s should 400, got %d %v", id, c, r)
+		}
 	}
-	if c, _ = call(t, s, "POST", "/api/account/shop/buy", tok, map[string]any{"item": "nope"}); c != 400 {
-		t.Fatalf("bad item should 400, got %d", c)
+	_, r = call(t, s, "GET", "/api/account/me", tok, nil)
+	if acc, ok := r["account"].(map[string]any); ok && acc["coins"].(float64) != 200 {
+		t.Fatalf("coins changed %v", acc)
 	}
-	// 签到 +50 → 110，当天不能重复
+	// 签到 +50 → 250，当天不能重复
 	c, r = call(t, s, "POST", "/api/account/checkin", tok, nil)
 	if c != 200 || r["bonus"].(float64) != 50 {
 		t.Fatalf("checkin %d %v", c, r)
@@ -184,9 +187,12 @@ func TestShopTrainCheckin(t *testing.T) {
 	if c, _ = call(t, s, "POST", "/api/account/checkin", tok, nil); c != 409 {
 		t.Fatalf("repeat checkin should 409, got %d", c)
 	}
-	// 训练：50 币 +40 经验；3 次到 120 经验 → 2 级（第三次需要补币）
+	// 训练：50 币 +40 经验；jin 两次后用 li 把金币花光，再训练 jin 应 402
 	call(t, s, "POST", "/api/account/train", tok, map[string]any{"char": "jin"})
 	call(t, s, "POST", "/api/account/train", tok, map[string]any{"char": "jin"})
+	for i := 0; i < 3; i++ {
+		call(t, s, "POST", "/api/account/train", tok, map[string]any{"char": "li"})
+	}
 	if c, _ = call(t, s, "POST", "/api/account/train", tok, map[string]any{"char": "jin"}); c != 402 {
 		t.Fatalf("out of coins should 402, got %d", c)
 	}
@@ -217,7 +223,7 @@ func TestPersistence(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "d", "a.json")
 	st, _ := NewStore(p)
 	a, _ := st.Register("frank", "secret1")
-	st.Buy(a.ID, "shield", 1)
+	st.Grant(a.ID, "jin", 0, 0)
 	st2, err := NewStore(p)
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +232,7 @@ func TestPersistence(t *testing.T) {
 		t.Fatalf("login after reload: %v", err)
 	}
 	v, _ := st2.View(a.ID)
-	if v.Items["shield"] != 1 || v.Coins != 100 {
+	if v.Coins != 200 {
 		t.Fatalf("reload view %+v", v)
 	}
 	_ = http.StatusOK

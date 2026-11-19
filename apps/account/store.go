@@ -1,13 +1,14 @@
 package main
 
 import (
-	"database/sql"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +24,8 @@ const (
 
 var CharIDs = []string{"jin", "li", "wang", "xing", "panda", "rock"}
 
-// ShopItems 与对战服 ITEM_IDS 对应（id 一致）；price 为提案值。
-var ShopItems = []ShopItem{
+// ItemValues 仅供排行榜 assets 内部估值（与对战服 ITEM_IDS 对应）；道具卡已从商城下架，不可购买。
+var ItemValues = []ShopItem{
 	{"dice", "遥控骰子", 120}, {"roadblock", "路障卡", 80}, {"shield", "护盾卡", 100},
 	{"doubleToll", "双倍收租卡", 150}, {"demolish", "强拆卡", 150}, {"freeBuild", "免费建造卡", 130},
 	{"teleport", "传送卡", 140}, {"swap", "换位卡", 110}, {"taxFree", "免税卡", 70}, {"freeze", "冻结卡", 120},
@@ -297,32 +298,12 @@ func (s *Store) Checkin(id string) (Account, int, error) {
 	return clone(a), bonus, s.saveLocked()
 }
 
-// Buy 购买道具：扣金币、加库存。
+// ErrShopClosed 道具卡已下架。
+var ErrShopClosed = fmt.Errorf("%w: 对局道具卡已下架，仅在对局内出现和使用，不再出售", ErrInvalid)
+
+// Buy 商城已下架全部道具卡：一律拒绝，不扣金币、不加库存。
 func (s *Store) Buy(id, item string, qty int) (Account, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, ok := s.byID[id]
-	if !ok {
-		return Account{}, ErrNotFound
-	}
-	if qty < 1 || qty > 20 {
-		return Account{}, ErrInvalid
-	}
-	price := -1
-	for _, it := range ShopItems {
-		if it.ID == item {
-			price = it.Price
-		}
-	}
-	if price < 0 {
-		return Account{}, ErrInvalid
-	}
-	if a.Coins < price*qty {
-		return Account{}, ErrNoCoins
-	}
-	a.Coins -= price * qty
-	a.Items[item] += qty
-	return clone(a), s.saveLocked()
+	return Account{}, ErrShopClosed
 }
 
 // TrainCost 训练：每次花费 coins 金币，获得 exp 经验。
