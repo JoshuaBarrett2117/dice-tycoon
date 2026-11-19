@@ -1,15 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +83,8 @@ var (
 type Store struct {
 	mu    sync.Mutex
 	path  string
+	db    *sql.DB
+	snap  snapshot // 上次已落库内容（用于增量写：只写变化的行）
 	byID  map[string]*Account
 	byUN  map[string]*Account
 	sess  map[string]session
@@ -96,57 +96,29 @@ type Store struct {
 	setSet  map[string]bool
 }
 
+// NewStore 打开存储。path 为旧版 JSON 路径（如 data/account.json）：
+// 数据库文件为同目录同名 .db（data/account.db）；若旧 JSON 存在且尚未迁移，启动时一次性迁移并把旧文件改名备份。
+// path 为空则纯内存（测试用）。
 func NewStore(path string) (*Store, error) {
 	s := &Store{path: path, byID: map[string]*Account{}, byUN: map[string]*Account{}, sess: map[string]session{}, clock: time.Now, setSet: map[string]bool{}}
 	if path == "" {
 		return s, nil
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return s, nil
-		}
+	if err := s.openDB(dbPathOf(path)); err != nil {
 		return nil, err
 	}
-	var f dbFile
-	if err := json.Unmarshal(b, &f); err != nil {
+	if err := s.migrateLegacy(path); err != nil {
+		s.db.Close()
 		return nil, err
 	}
-	for _, a := range f.Accounts {
-		s.byID[a.ID] = a
-		s.byUN[strings.ToLower(a.Username)] = a
-	}
-	if f.Sessions != nil {
-		s.sess = f.Sessions
-	}
-	s.season, s.history, s.settled = f.Season, f.History, f.Settled
-	for _, m := range s.settled {
-		s.setSet[m] = true
+	if err := s.loadFromDB(); err != nil {
+		s.db.Close()
+		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Store) saveLocked() error {
-	if s.path == "" {
-		return nil
-	}
-	f := dbFile{Sessions: s.sess, Season: s.season, History: s.history, Settled: s.settled}
-	for _, a := range s.byID {
-		f.Accounts = append(f.Accounts, a)
-	}
-	b, err := json.Marshal(f)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
-}
+func (s *Store) saveLocked() error { return s.persistLocked() }
 
 // PBKDF2-HMAC-SHA256（标准库在 Go 1.24 前没有，自己实现一次）
 func pbkdf2(pass, salt []byte, iter, keyLen int) []byte {

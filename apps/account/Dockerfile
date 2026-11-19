@@ -2,7 +2,8 @@
 FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 COPY *.go ./
 RUN go vet ./... && go test ./... \
  && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /account .
