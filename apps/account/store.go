@@ -52,7 +52,12 @@ type Account struct {
 	Chars     map[string]CharProgress `json:"chars"`
 	Items     map[string]int          `json:"items"`
 	LastCheck string                  `json:"lastCheckin"`
-	Created   int64                   `json:"created"`
+	// v1.3：联机战绩与段位（只存业务服，不进引擎与回放）
+	Rating     int   `json:"rating"`     // 段位分
+	Games      int   `json:"games"`      // 累计联机局数
+	Wins       int   `json:"wins"`       // 累计胜场
+	SeasonWins int   `json:"seasonWins"` // 本赛季胜场
+	Created    int64 `json:"created"`
 }
 
 type session struct {
@@ -63,6 +68,9 @@ type session struct {
 type dbFile struct {
 	Accounts []*Account         `json:"accounts"`
 	Sessions map[string]session `json:"sessions"` // key = sha256(token) hex
+	Season   *SeasonInfo        `json:"season,omitempty"`
+	History  []SeasonRecord     `json:"history,omitempty"`
+	Settled  []string           `json:"settled,omitempty"` // 最近已结算 matchId（幂等）
 }
 
 var (
@@ -81,10 +89,15 @@ type Store struct {
 	byUN  map[string]*Account
 	sess  map[string]session
 	clock func() time.Time
+
+	season  *SeasonInfo
+	history []SeasonRecord
+	settled []string
+	setSet  map[string]bool
 }
 
 func NewStore(path string) (*Store, error) {
-	s := &Store{path: path, byID: map[string]*Account{}, byUN: map[string]*Account{}, sess: map[string]session{}, clock: time.Now}
+	s := &Store{path: path, byID: map[string]*Account{}, byUN: map[string]*Account{}, sess: map[string]session{}, clock: time.Now, setSet: map[string]bool{}}
 	if path == "" {
 		return s, nil
 	}
@@ -106,6 +119,10 @@ func NewStore(path string) (*Store, error) {
 	if f.Sessions != nil {
 		s.sess = f.Sessions
 	}
+	s.season, s.history, s.settled = f.Season, f.History, f.Settled
+	for _, m := range s.settled {
+		s.setSet[m] = true
+	}
 	return s, nil
 }
 
@@ -113,7 +130,7 @@ func (s *Store) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	f := dbFile{Sessions: s.sess}
+	f := dbFile{Sessions: s.sess, Season: s.season, History: s.history, Settled: s.settled}
 	for _, a := range s.byID {
 		f.Accounts = append(f.Accounts, a)
 	}

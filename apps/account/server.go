@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,7 +34,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/account/train", s.authed(s.train))
 	mux.HandleFunc("GET /api/account/shop", s.shop)
 	mux.HandleFunc("POST /api/account/shop/buy", s.authed(s.buy))
+	mux.HandleFunc("GET /api/account/leaderboard", s.leaderboard)
+	mux.HandleFunc("GET /api/account/season", s.seasonInfo)
 	mux.HandleFunc("POST /internal/grant", s.grant)
+	mux.HandleFunc("POST /internal/settle", s.settle)
 	return mux
 }
 
@@ -221,4 +225,45 @@ func (s *Server) grant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"account": v})
+}
+
+func (s *Server) internalOK(r *http.Request) bool {
+	return s.internalToken != "" && subtle.ConstantTimeCompare([]byte(bearer(r)), []byte(s.internalToken)) == 1
+}
+
+// settle 对战服在联机对局结束后上报名次（需 INTERNAL_TOKEN）；幂等。
+func (s *Server) settle(w http.ResponseWriter, r *http.Request) {
+	if !s.internalOK(r) {
+		http.NotFound(w, r)
+		return
+	}
+	var b struct {
+		MatchID string        `json:"matchId"`
+		Results []PlaceResult `json:"results"`
+	}
+	if err := decode(r, &b); err != nil {
+		fail(w, err)
+		return
+	}
+	out, err := s.st.Settle(b.MatchID, b.Results)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"settled": out})
+}
+
+func (s *Server) leaderboard(w http.ResponseWriter, r *http.Request) {
+	n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+	list, season, err := s.st.Leaderboard(r.URL.Query().Get("by"), n)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"by": strings.ToLower(r.URL.Query().Get("by")), "season": season, "list": list})
+}
+
+func (s *Server) seasonInfo(w http.ResponseWriter, r *http.Request) {
+	cur, hist := s.st.SeasonView()
+	writeJSON(w, 200, map[string]any{"season": cur, "history": hist, "days": SeasonDays})
 }

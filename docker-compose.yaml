@@ -19,6 +19,8 @@ services:
       - TICKET_KEYS=${TICKET_KEYS:?请在 .env 设置 TICKET_KEYS}
       # 设为 1 则联机必须登录；默认 0：未登录也可匿名联机，带了票据则必须有效
       - TICKET_REQUIRED=${TICKET_REQUIRED:-0}
+      # v1.3：与业务服相同的口令，用于联机结算上报；不设置则不上报
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
     depends_on:
       - account
   account:

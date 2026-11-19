@@ -3,7 +3,13 @@ export interface AccountView {
   id: string; username: string; coins: number;
   chars: Record<string, { exp: number; level: number }>;
   items: Record<string, number>;
+  rating?: number; games?: number; wins?: number; seasonWins?: number;
 }
+export interface RankEntry { rank: number; username: string; rating: number; tier: string; wins: number; games: number; assets: number }
+export interface SeasonInfo { id: number; start: number; end: number }
+export type BoardBy = 'rating' | 'wins' | 'assets';
+export const TIERS = [[0, '青铜'], [100, '白银'], [300, '黄金'], [600, '铂金'], [1000, '钻石'], [1500, '王者']] as const;
+export const tierOf = (r: number) => TIERS.reduce((n, [m, t]) => (r >= m ? t : n), '青铜' as string);
 export interface ShopInfo { items: { id: string; name: string; price: number }[]; train: { cost: number; exp: number; expPerLevel: number; maxLevel: number } }
 
 const KEY = 'dt.acct.v1';
@@ -44,3 +50,5 @@ export async function fetchTicket(server: string): Promise<{ ticket: string; acc
   if (!savedToken()) return null;
   return call<{ ticket: string; accountId: string }>(server, '/ticket', 'POST');
 }
+
+export const leaderboard = (s: string, by: BoardBy) => call<{ season: SeasonInfo; list: RankEntry[] }>(s, `/leaderboard?by=${by}`, 'GET', undefined, false);

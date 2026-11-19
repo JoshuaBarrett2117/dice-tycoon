@@ -8,7 +8,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type TelemetryType =
-  | 'match_start' | 'match_end' | 'risk_reject' | 'replay_check' | 'anomaly';
+  | 'match_start' | 'match_end' | 'risk_reject' | 'replay_check' | 'anomaly' | 'settle';
 
 export const telemetryEnabled = () => String(process.env.TELEMETRY || 'on').toLowerCase() !== 'off';
 export const telemetryDir = () => process.env.TELEMETRY_DIR || join(process.cwd(), 'data', 'telemetry');

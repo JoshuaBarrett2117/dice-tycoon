@@ -147,6 +147,7 @@ async function showAccount(note = '') {
     const names = (id: string) => (ITEMS as Record<string, { name: string }>)[id]?.name || id;
     o.innerHTML = `<div class="panel"><div class="ttl">账号 · ${esc(acc.username)}</div>
       <div class="hint">金币 <b>${acc.coins}</b> · <button id="ck">每日签到 +50</button></div>
+      <div class="hint">联机段位：<b>${A.tierOf(acc.rating || 0)}</b>（${acc.rating || 0} 分）· ${acc.games || 0} 局 ${acc.wins || 0} 胜 · <button id="lb">排行榜</button></div>
       <div class="hint">角色养成${info ? `（训练：${info.train.cost} 金币 → ${info.train.exp} 经验）` : ''}：</div>
       <div class="subbtns">${CHAR_IDS.map((c) => { const p = acc!.chars[c] || { exp: 0, level: 1 }; return `<button data-tr="${c}">${CHARACTERS[c].name} Lv${p.level}（${p.exp} 经验）</button>`; }).join('')}</div>
       <div class="hint">商城：</div>
@@ -157,9 +158,26 @@ async function showAccount(note = '') {
     o.querySelector<HTMLButtonElement>('#ck')!.onclick = act(async () => `签到成功，+${(await A.checkin(prefs.server)).bonus} 金币`);
     o.querySelectorAll<HTMLButtonElement>('[data-tr]').forEach((b) => (b.onclick = act(async () => { await A.train(prefs.server, b.dataset.tr!); return '训练完成'; })));
     o.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((b) => (b.onclick = act(async () => { await A.buy(prefs.server, b.dataset.buy!); return `已购买 ${names(b.dataset.buy!)}`; })));
+    o.querySelector<HTMLButtonElement>('#lb')!.onclick = () => void showBoard('rating');
     o.querySelector<HTMLButtonElement>('#lo')!.onclick = async () => { await A.logout(prefs.server); void showAccount('已退出登录'); };
   }
   o.querySelector<HTMLButtonElement>('#back')!.onclick = () => showMenu();
+}
+
+/** 全服排行榜（只展示账号名与公开数据；段位分只来自联机对局，单机/匿名不计） */
+async function showBoard(by: A.BoardBy) {
+  const o = overlay('lobby');
+  let body = '';
+  try {
+    const r = await A.leaderboard(prefs.server, by);
+    const day = (t: number) => new Date(t * 1000).toLocaleDateString();
+    body = `<div class="hint">第 ${r.season.id} 赛季 · ${day(r.season.start)} ~ ${day(r.season.end)}（结束时段位分按 50% 保留，胜场清零）</div>`
+      + (r.list.length ? `<table class="board"><tr><th>#</th><th>玩家</th><th>段位</th><th>分</th><th>赛季胜</th><th>总资产</th></tr>${r.list.map((e) => `<tr><td>${e.rank}</td><td>${esc(e.username)}</td><td>${esc(e.tier)}</td><td>${e.rating}</td><td>${e.wins}</td><td>${e.assets}</td></tr>`).join('')}</table>` : '<div class="hint">暂无数据，打完一局联机对局就会上榜。</div>');
+  } catch (e) { body = `<div class="msg">${esc((e as Error).message)}</div>`; }
+  const tab = (b: A.BoardBy, n: string) => `<button data-by="${b}"${b === by ? ' class="gold"' : ''}>${n}</button>`;
+  o.innerHTML = `<div class="panel"><div class="ttl">全服排行榜</div><div class="subbtns">${tab('rating', '段位分')}${tab('wins', '赛季胜场')}${tab('assets', '总资产')}</div>${body}<div class="subbtns"><button id="back">返回</button></div></div>`;
+  o.querySelectorAll<HTMLButtonElement>('[data-by]').forEach((b) => (b.onclick = () => void showBoard(b.dataset.by as A.BoardBy)));
+  o.querySelector<HTMLButtonElement>('#back')!.onclick = () => void showAccount();
 }
 
 // ───────────────────────── 档案与历史 ─────────────────────────

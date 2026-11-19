@@ -7,6 +7,7 @@ import {
 import { checkTicket } from '../ticket';
 import { registry } from '../registry';
 import { track } from '../telemetry';
+import { buildResults, postSettle } from '../settle';
 
 const BOT_NAMES = ['阿柚', '老周', '阿星', '小麦', '大熊'];
 const RECONNECT_SECONDS = 30;
@@ -33,6 +34,8 @@ export class MatchRoom extends Room {
   private recorder: ReplayRecorder | null = null;
   /** sessionId → 透传的 accountId（只携带，不校验） */
   private accounts = new Map<string, string>();
+  /** sessionId → 票据校验通过的 accountId（只有这些玩家参与结算/段位；匿名与仅声明的 accountId 不算） */
+  private verified = new Map<string, string>();
   private guard = new ActionGuard(SPEED);
   private deadline: number | null = null;
   private timer: { clear(): void } | null = null;
@@ -79,6 +82,7 @@ export class MatchRoom extends Room {
     const name = String(options.name || '玩家').slice(0, 12);
     const claimed = verified.accountId ?? (typeof options.accountId === 'string' ? options.accountId : '');
     if (claimed) this.accounts.set(client.sessionId, claimed.slice(0, 64)); // 有票据时以票据里的 accountId 为准
+    if (verified.accountId) this.verified.set(client.sessionId, verified.accountId);
     this.seats.push({ sessionId: client.sessionId, name, charId, isBot: false, ready: true, connected: true });
     if (!this.host) this.host = client.sessionId;
     if (this.queue) this.queue.join(client.sessionId, Date.now());
@@ -230,6 +234,21 @@ export class MatchRoom extends Room {
     } catch (e) {
       track('anomaly', this.roomId, { message: (e as Error).message });
     }
+    this.settleMatch();
+  }
+
+  /** v1.3：把名次上报业务服（段位/奖励在那边算）；对局结束只触发一次，失败不影响对局 */
+  private settled = false;
+  private settleMatch() {
+    const g = this.game;
+    if (!g || this.settled) return;
+    this.settled = true;
+    const results = buildResults(g, (seat) => {
+      const sid = this.seats[seat]?.sessionId;
+      return sid ? this.verified.get(sid) : undefined;
+    });
+    if (results.length === 0) return;
+    void postSettle(`${this.roomId}-${this.recorder?.toRecord(g).seed ?? Date.now()}`, results).then((ok) => track('settle', this.roomId, { ok, players: results.length }));
   }
 
   private publish(events: GameEvent[]) {
