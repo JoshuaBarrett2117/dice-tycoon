@@ -652,6 +652,6 @@ export class Director {
 // 资源路径
 const base = () => import.meta.env.BASE_URL + 'assets/';
 /** mine=true 时若已装备该角色外观则用外观立绘（仅自己可见） */
-export const charUrl = (c: string, mine = false) => { const sk = mine ? skinOf(c) : null; return `${base()}${sk || CHAR_TEX[c]}.svg`; };
-const coinUrl = () => `${base()}coin.svg`;
-const bldUrl = (lv: number) => `${base()}bld${lv}.svg`;
+export const charUrl = (c: string, mine = false) => { const sk = mine ? skinOf(c) : null; const f = sk || CHAR_TEX[c]; return `${base()}${f}.${/^char[1-5]$/.test(f) ? 'png' : 'svg'}`; };
+const coinUrl = () => `${base()}coin.png`;
+const bldUrl = (lv: number) => `${base()}bld${lv}.png`;

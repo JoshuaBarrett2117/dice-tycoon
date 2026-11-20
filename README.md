@@ -246,7 +246,7 @@ v0.3 起 `result.ranking` 在对局结束后给出每个座位的胜负与名次
 - **加载进度**：首屏进度条与百分比；渲染器等按需 chunk 由 Vite 自动分包，音频文件首次播放才加载（不计入首包）。首包口径：`npm run build` 产物中首屏必需的 js/css/图片，当前 `apps/client/dist` 约 2.2 MB。
 - **音效文件通道**：`audio.ts` 接口不变；优先加载 `/audio/sfx/<名称>.ogg|.m4a`，缺失或解码失败自动回退合成音效。已接入真实素材（#14）：24 个音效来自 Kenney CC0，BGM 为 Pixabay「Tropical Bounce」（Pixabay Content License），位于 `apps/client/public/audio/`（含 NOTES.md / sfx-mapping.json 记录来源与许可）；BGM 同样走文件通道（循环，兼容 setMood/toggleMusic，缺失回退合成）。音频约 5.8 MB（ogg+m4a 两份，浏览器只取其一），首次播放才加载，不计入首包 dist 统计。
 - **图标**：道具 10 种、角色技能 6 个、竞拍均为内联 SVG（`apps/client/src/ui/icons.ts`），道具/技能按钮上显示。
-- **立绘**：岩盾阿岩改用独立 SVG 立绘（`char6.svg`），不再复用熊猫。**#15 跟进**：其余 5 名角色（阿金/阿狸/阿旺/阿星/熊猫）占位 PNG 已替换为与 `char6.svg` 统一风格的原创扁平矢量 SVG（`char1.svg`–`char5.svg`，合计约 5.5 KB，比原 PNG 约 440 KB 大幅减小）；来源与许可见 `apps/client/public/assets/NOTES.md`。
+- **立绘**：岩盾阿岩改用独立 SVG 立绘（`char6.svg`），不再复用熊猫。（#15 / #16 曾把 5 名角色与建筑、角格、背景、金币的 Q 版 3D PNG 替换为扁平 SVG，2026-11-20 已回滚恢复原图；`char6.svg` / `char7.svg` / 外观 SVG 待重绘，见 `apps/client/public/assets/NOTES.md`。）
 - **#16 跟进**：建筑（bld1–4）、角格（c_start/island/fest/air）、背景（bg）、金币（coin）占位图全部替换为与角色立绘同风格的原创扁平矢量 SVG，加载路径同步；美术目录总计约 22 KB（原 PNG/JPG 约 0.9 MB），来源与许可见 NOTES.md。
 - **待办**：角色立绘、音频、建筑/角格/背景美术均已落地；规则引擎未改动，`GameState.version` 仍为 2。
 
