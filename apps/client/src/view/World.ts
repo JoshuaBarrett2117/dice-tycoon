@@ -18,8 +18,8 @@ const BLD_H = [0, 52, 76, 100, 96];
 export const ASSET_LIST = [
   'bg.jpg', 'c_start.png', 'c_island.png', 'c_fest.png', 'c_air.png',
   'bld1.png', 'bld2.png', 'bld3.png', 'bld4.png', 'coin.png',
-  'char1.png', 'char2.png', 'char3.png', 'char4.png', 'char5.png', 'char6.svg', 'char7.svg',
-  'skin_jin.svg', 'skin_li.svg', 'skin_wang.svg', 'skin_xing.svg', 'skin_panda.svg', 'skin_rock.svg',
+  'char1.png', 'char2.png', 'char3.png', 'char4.png', 'char5.png', 'char6.png', 'char7.png',
+  'skin_jin.png', 'skin_li.png', 'skin_wang.png', 'skin_xing.png', 'skin_panda.png', 'skin_rock.png',
 ];
 
 export const CHAR_TEX: Record<string, string> = { jin: 'char1', li: 'char2', wang: 'char3', xing: 'char4', panda: 'char5', rock: 'char6', tang: 'char7' };

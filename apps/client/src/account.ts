@@ -6,6 +6,8 @@ export interface AccountView {
   items: Record<string, number>;
   cosmetics?: { owned: string[]; equipped: Record<string, string> };
   rating?: number; games?: number; wins?: number; seasonWins?: number;
+  /** 最近签到日（UTC，YYYY-MM-DD） */
+  lastCheckin?: string;
 }
 export interface RankEntry { rank: number; username: string; rating: number; tier: string; wins: number; games: number; assets: number }
 export interface SeasonInfo { id: number; start: number; end: number }

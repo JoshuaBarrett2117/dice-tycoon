@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCosmeticsShopBuyEquip(t *testing.T) {
 	s, _ := newSrv(t)
@@ -146,3 +149,25 @@ func TestPaidCharTang(t *testing.T) {
 		t.Fatalf("assets %d", got)
 	}
 }
+
+// 外观名与角色名一致（金多多 / 小狸 / 铁算盘老王 / 赛博阿星 / 熊猫工头 / 岩盾阿岩 + 「·幻彩外观」）
+func TestCosmeticSkinNamesMatchChars(t *testing.T) {
+	want := map[string]string{
+		"skin_jin": "金多多·幻彩外观", "skin_li": "小狸·幻彩外观", "skin_wang": "铁算盘老王·幻彩外观",
+		"skin_xing": "赛博阿星·幻彩外观", "skin_panda": "熊猫工头·幻彩外观", "skin_rock": "岩盾阿岩·幻彩外观",
+	}
+	for id, name := range want {
+		c, ok := cosmeticByID(id)
+		if !ok || c.Name != name {
+			t.Fatalf("%s: want %q got %q (ok=%v)", id, name, c.Name, ok)
+		}
+	}
+	for _, old := range []string{"金大宝", "李小橙", "王小萌", "星星", "熊猫·", "磐石"} {
+		for _, c := range cosmeticCatalog {
+			if strings.Contains(c.Name, old) {
+				t.Fatalf("旧名残留 %q in %q", old, c.Name)
+			}
+		}
+	}
+}
+

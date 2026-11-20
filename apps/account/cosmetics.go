@@ -21,7 +21,8 @@ type Cosmetic struct {
 	Char  string `json:"char,omitempty"`
 }
 
-var charNames = map[string]string{"jin": "金大宝", "li": "李小橙", "wang": "王小萌", "xing": "星星", "panda": "熊猫", "rock": "磐石", "tang": "锦鲤阿棠"}
+// 与客户端 / 引擎 characters.ts 的角色名保持一致（外观名 = 角色名 + 「·幻彩外观」）
+var charNames = map[string]string{"jin": "金多多", "li": "小狸", "wang": "铁算盘老王", "xing": "赛博阿星", "panda": "熊猫工头", "rock": "岩盾阿岩", "tang": "锦鲤阿棠"}
 
 var cosmeticCatalog = buildCatalog()
 

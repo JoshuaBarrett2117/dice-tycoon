@@ -368,7 +368,7 @@ export class Hud {
   showResult(title: string, sub: string, rows: { name: string; color: string; img: string; value: number; tag: string }[], onAgain: () => void, onExport?: () => Promise<void>, opts: { againLabel?: string; onReplay?: () => void; keepOpen?: boolean } = {}) {
     const r = $(this.stage, '#result');
     r.innerHTML = `<div class="panel"><div class="ttl st3">${esc(title)}</div><div class="sub">${esc(sub)}</div>
-      ${rows.map((x, i) => `<div class="row" style="--c:${x.color}"><span class="rk">${i + 1}</span><img src="${x.img}" alt=""><span class="n">${esc(x.name)}</span><span class="tg">${esc(x.tag)}</span><span class="v">¥${x.value}万</span></div>`).join('')}
+      ${rows.map((x, i) => `<div class="row r${i + 1}" style="--c:${x.color}"><span class="rk">${i + 1}</span><img src="${x.img}" alt=""><span class="n">${esc(x.name)}</span><span class="tg">${esc(x.tag)}</span><span class="v">¥${x.value}万</span></div>`).join('')}
       <div class="rb">${onExport ? '<button class="exp">导出回放 JSON</button>' : ''}${opts.onReplay ? '<button class="exp rpl">回放本局</button>' : ''}<button class="again">${esc(opts.againLabel ?? '再来一局')}</button></div></div>`;
     r.classList.add('show');
     const exp = r.querySelector<HTMLButtonElement>('.exp');

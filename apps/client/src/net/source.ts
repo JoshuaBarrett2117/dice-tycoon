@@ -138,7 +138,14 @@ export class NetSource implements GameSource {
     this.backlog.splice(0).forEach(cb);
   }
   send(a: Action) { this.room.send('action', a); }
-  dispose() { this.cb = null; void this.room.leave(); }
+  /** v1.8 连接状态：drop 掉线（SDK 自动重连中）/ reconnect 重连成功 / leave 非主动离开（彻底断开） */
+  private leaving = false;
+  onConnection(h: { drop: () => void; reconnect: () => void; leave: () => void }) {
+    this.room.onDrop(() => { if (!this.leaving) h.drop(); });
+    this.room.onReconnect(() => { if (!this.leaving) h.reconnect(); });
+    this.room.onLeave(() => { if (!this.leaving) h.leave(); });
+  }
+  dispose() { this.leaving = true; this.cb = null; void this.room.leave(); }
 }
 
 // ───────────────────────── 回放 ─────────────────────────

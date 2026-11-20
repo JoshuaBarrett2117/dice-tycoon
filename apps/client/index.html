@@ -6,11 +6,20 @@
   <meta name="theme-color" content="#0d3b4f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>掷富天下 · 网页大富翁</title>
+  <style>
+    /* 首屏关键样式：主样式随脚本注入前，加载页也保持成品观感 */
+    html, body { margin: 0; height: 100%; background: #0d3b4f; overflow: hidden; }
+    #loading { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: radial-gradient(ellipse at 50% 40%, #1f6f8f, #0d3b4f 70%); color: #fff; font: 900 15px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    #loading .ll { font-size: clamp(40px, 10vw, 72px); color: #ffcf2e; letter-spacing: 6px; text-shadow: 0 6px 0 rgba(120,50,0,.55); }
+    #loading .lb { width: min(60vw, 360px); height: 16px; border-radius: 8px; background: rgba(0,0,0,.3); border: 3px solid #fff; overflow: hidden; }
+    #loading .lf { height: 100%; width: 0; background: linear-gradient(#ffe27a, #ff9a1a); }
+    #rotate { display: none; }
+  </style>
 </head>
 <body>
   <div id="wrap"><div id="stage"></div></div>
-  <div id="loading"><div class="lb"><div class="lf" id="lf"></div></div><div id="lp">加载中 0%</div></div>
-  <div id="rotate">请横屏游玩 ↻</div>
+  <div id="loading"><div class="ll">掷富天下</div><div class="lb"><div class="lf" id="lf"></div></div><div id="lp">加载中 0%</div></div>
+  <div id="rotate"><div class="phone"></div><b>请横屏游玩</b><small>旋转手机即可继续对局，菜单页面竖屏也能使用</small><button class="rexit" type="button">退出到主菜单</button></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

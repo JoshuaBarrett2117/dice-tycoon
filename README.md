@@ -167,7 +167,7 @@ v0.3 起 `result.ranking` 在对局结束后给出每个座位的胜负与名次
 
 ## v1.7 更新说明（首批付费新角色：锦鲤阿棠）
 
-- **角色**（提案值，写在 `characters.ts`）：id `tang`，「锦鲤阿棠」，粉色 `#ec4899`，控骰命中率 0.4；被动「锦鲤体质」月薪 +50%（30 万 → 45 万，`CharacterDef` 新增 `salaryBonus`，原 6 名角色为 0、行为不变）；主动「锦鲤附体」（冷却 5 回合）：下次过起点月薪翻倍（复用 `doubleSalary` 标志，只生效一次；与被动相乘即 90 万）。立绘 `char7.svg`。`GameState.version` 仍为 2，旧回放兼容；不新增 `Math.random`。引擎导出 `PAID_CHAR_IDS` / `FREE_CHAR_IDS`，机器人默认补位与单机对手只从免费角色里选，机器人配置为 tang 时走通用 `useSkill` 分支（整局回放一致）。
+- **角色**（提案值，写在 `characters.ts`）：id `tang`，「锦鲤阿棠」，粉色 `#ec4899`，控骰命中率 0.4；被动「锦鲤体质」月薪 +50%（30 万 → 45 万，`CharacterDef` 新增 `salaryBonus`，原 6 名角色为 0、行为不变）；主动「锦鲤附体」（冷却 5 回合）：下次过起点月薪翻倍（复用 `doubleSalary` 标志，只生效一次；与被动相乘即 90 万）。立绘 `char7.png`。`GameState.version` 仍为 2，旧回放兼容；不新增 `Math.random`。引擎导出 `PAID_CHAR_IDS` / `FREE_CHAR_IDS`，机器人默认补位与单机对手只从免费角色里选，机器人配置为 tang 时走通用 `useSkill` 分支（整局回放一致）。
 - **商城 / 账号**：「角色」分类上架 `char_tang`，500 金币（约 8–10 场联机第一名奖励）；购买进 `cosmetics.owned`，重复购买 400、金币不足 402。`CharIDs` 增加 `tang`，可训练 / 升级、结算经验与其他角色一致；排行榜 assets 按购买价计入。tang 暂无角色外观。
 - **选角与校验**：客户端选角页显示粉色 tang，未购买为锁定态并提示去「账号 → 商城」购买；未登录与单机仅 6 名免费角色可选。联机入座时对战服（`apps/server/src/owns.ts`）用票据里的账号向业务服 `GET /internal/owns?account=&char=`（`INTERNAL_TOKEN` 口令）查询已购：匿名、未购、未配置业务服或查询失败一律拒绝并回 error。**付费角色联机需要对战服同时配置 `ACCOUNT_URL` 与 `INTERNAL_TOKEN`**。
 - **验证**：`go vet` / `go test`（商品、买前不可选、购买扣币、重复 400、不足 402、训练、assets 折算）；`npm test`（月薪 45、附体 90 且只一次、冷却 5、机器人 tang 整局回放）、`npm run build`、`npm run typecheck` 全绿；联机冒烟默认配置连续 2 次 26/26；`npm run char -w @dt/server` 联机端到端（匿名 / 未购被拒、免费可入座、购买后入座与训练）通过。浏览器内选角画面为无头环境未实测，以代码路径为准。
@@ -246,7 +246,7 @@ v0.3 起 `result.ranking` 在对局结束后给出每个座位的胜负与名次
 - **加载进度**：首屏进度条与百分比；渲染器等按需 chunk 由 Vite 自动分包，音频文件首次播放才加载（不计入首包）。首包口径：`npm run build` 产物中首屏必需的 js/css/图片，当前 `apps/client/dist` 约 2.2 MB。
 - **音效文件通道**：`audio.ts` 接口不变；优先加载 `/audio/sfx/<名称>.ogg|.m4a`，缺失或解码失败自动回退合成音效。已接入真实素材（#14）：24 个音效来自 Kenney CC0，BGM 为 Pixabay「Tropical Bounce」（Pixabay Content License），位于 `apps/client/public/audio/`（含 NOTES.md / sfx-mapping.json 记录来源与许可）；BGM 同样走文件通道（循环，兼容 setMood/toggleMusic，缺失回退合成）。音频约 5.8 MB（ogg+m4a 两份，浏览器只取其一），首次播放才加载，不计入首包 dist 统计。
 - **图标**：道具 10 种、角色技能 6 个、竞拍均为内联 SVG（`apps/client/src/ui/icons.ts`），道具/技能按钮上显示。
-- **立绘**：岩盾阿岩改用独立 SVG 立绘（`char6.svg`），不再复用熊猫。（#15 / #16 曾把 5 名角色与建筑、角格、背景、金币的 Q 版 3D PNG 替换为扁平 SVG，2026-11-20 已回滚恢复原图；`char6.svg` / `char7.svg` / 外观 SVG 待重绘，见 `apps/client/public/assets/NOTES.md`。）
+- **立绘**：岩盾阿岩使用独立立绘 `char6.png`（Q 版 3D），不再复用熊猫。（#15 / #16 曾把 5 名角色与建筑、角格、背景、金币的 Q 版 3D PNG 替换为扁平 SVG，2026-11-20 已回滚恢复原图；2026-11-20 起 `char6.png`、`char7.png`、`skin_*.png`、`dice_*.png` 均已按 Q 版 3D 风格重绘。）
 - **#16 跟进**：建筑（bld1–4）、角格（c_start/island/fest/air）、背景（bg）、金币（coin）占位图全部替换为与角色立绘同风格的原创扁平矢量 SVG，加载路径同步；美术目录总计约 22 KB（原 PNG/JPG 约 0.9 MB），来源与许可见 NOTES.md。
 - **待办**：角色立绘、音频、建筑/角格/背景美术均已落地；规则引擎未改动，`GameState.version` 仍为 2。
 
@@ -341,3 +341,11 @@ docker compose up -d
 ```
 
 CI 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 里配置 `DOCKERHUB_TOKEN`（Docker Hub 访问令牌，需 Read & Write 权限）。
+
+## v1.8 · 商业化美术与 UI 全面美化（2026-11-21）
+
+- **新美术**：岩盾阿岩 `char6.png`、锦鲤阿棠 `char7.png`、6 套「幻彩外观」`skin_*.png`、4 款骰子商品图 `dice_*.png`，全部为 Q 版 3D 渲染，彻底移除扁平 SVG。
+- **控件**：所有原生 `<select>`（难度/主题/棋盘等）替换为分段选择控件（`ui/kit.ts`，radiogroup，支持键盘）。
+- **账号中心 / 商城**：顶部账号栏（头像、段位徽章、金币、签到、排行榜）；商城分类 + 带图商品卡（购买 / 装备 / 已装备 / 已拥有）；角色养成卡片（立绘、等级、经验条、训练）。
+- **全页面重做**：主菜单、登录注册、排行榜、档案与历史、观战列表、房间大厅、快速匹配、对局 HUD、结算页、回放条、断线重连提示；统一设计 token，适配 1280×720 / 844×390 / 390×844。
+- 外观名称与角色统一（金多多/小狸/铁算盘老王/赛博阿星/熊猫工头/岩盾阿岩 ·幻彩外观）。
