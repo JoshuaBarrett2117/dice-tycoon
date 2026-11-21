@@ -31,7 +31,7 @@ npm run dev              # 终端 2：客户端 http://localhost:5173
 联机冒烟测试（先启动对战服）：
 ```bash
 MATCH_TIMEOUT_MS=3000 SMOKE_SPEED=20 npm run dev:server   # 终端 1：缩短匹配超时与机器人等待（仅测试用）
-SMOKE_FAST=1 npm run smoke -w @dt/server                  # 终端 2：整局打完，校验观战 / 匹配 / 回放
+SMOKE_FAST=1 npm run smoke -w @dt/server                  # 终端 2：整局打完，校验观战 / 匹配 / 回放（默认最长等 60 秒，v1.9 起整局约 13–38 秒，打完即返回）
 ```
 覆盖：朋友房回放导出可重放、观战者中途加入且任何操作被拒绝、观战席上限、`/api/rooms` 列表、4 人凑满开局、单人匹配取消、单人超时机器人补位并打完整局。不加环境变量也能直接 `npm run smoke -w @dt/server`（默认节奏，只校验推进与回放）。
 

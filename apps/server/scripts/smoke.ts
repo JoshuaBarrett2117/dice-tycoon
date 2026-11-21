@@ -17,7 +17,7 @@ import {
 
 const URL = process.env.SERVER_URL || 'ws://localhost:2567';
 const HTTP = URL.replace(/^ws/, 'http');
-const SECONDS = Number(process.env.SMOKE_SECONDS || 25);
+const SECONDS = Number(process.env.SMOKE_SECONDS || 60);
 const FAST = !!process.env.SMOKE_FAST;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fails: string[] = [];
