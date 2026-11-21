@@ -18,6 +18,8 @@ export interface GameRecord {
   specials?: boolean;
   /** v0.8 新道具池；缺省 false（旧回放兼容） */
   itemsV8?: boolean;
+  /** v1.9 收购扩展 / 商店 / 强制收购卡；缺省 false（旧回放兼容） */
+  v19?: boolean;
   /** v1.1 棋盘 id；缺省 = 经典棋盘（旧回放按经典重放） */
   board?: BoardId;
   /** 座位配置（含可选的 accountId 透传字段，引擎不校验） */
@@ -57,6 +59,7 @@ export class ReplayRecorder {
       format: REPLAY_FORMAT, engineVersion: 2, seed: this.cfg.seed >>> 0, maxRounds: this.cfg.maxRounds,
       ...(this.cfg.specials ? { specials: true } : {}),
       ...(this.cfg.itemsV8 ? { itemsV8: true } : {}),
+      ...(this.cfg.v19 ? { v19: true } : {}),
       ...(this.cfg.board && this.cfg.board !== 'classic' ? { board: this.cfg.board } : {}),
       seats: structuredClone(this.cfg.seats), actions: structuredClone(this.actions),
     };
@@ -71,7 +74,7 @@ export class ReplayRecorder {
 /** 重放一份记录，返回最终状态与完整事件流；遇到非法操作抛错（说明记录被篡改或引擎不兼容） */
 export function replayGame(rec: GameRecord): { state: GameState; events: GameEvent[] } {
   if (rec.format !== REPLAY_FORMAT) throw new Error('不是有效的回放文件');
-  let state = createGame({ seed: rec.seed, seats: rec.seats, maxRounds: rec.maxRounds, specials: rec.specials, itemsV8: rec.itemsV8, board: rec.board });
+  let state = createGame({ seed: rec.seed, seats: rec.seats, maxRounds: rec.maxRounds, specials: rec.specials, itemsV8: rec.itemsV8, v19: rec.v19, board: rec.board });
   const events: GameEvent[] = [...openingEvents(state)];
   rec.actions.forEach((a, i) => {
     const r = applyAction(state, a.seat, a.action);
@@ -96,7 +99,7 @@ export class ReplayPlayer {
   constructor(readonly record: GameRecord) {
     if (record?.format !== REPLAY_FORMAT) throw new Error('不是有效的回放文件');
     if (!Array.isArray(record.seats) || !Array.isArray(record.actions)) throw new Error('回放文件已损坏');
-    let state = createGame({ seed: record.seed, seats: record.seats, maxRounds: record.maxRounds, specials: record.specials, itemsV8: record.itemsV8, board: record.board });
+    let state = createGame({ seed: record.seed, seats: record.seats, maxRounds: record.maxRounds, specials: record.specials, itemsV8: record.itemsV8, v19: record.v19, board: record.board });
     this.frames = [{ index: 0, state, events: [...openingEvents(state)], seat: null, action: null }];
     record.actions.forEach((a, i) => {
       const r = applyAction(state, a.seat, a.action);

@@ -47,7 +47,7 @@ export interface PlayerState {
   frozen?: boolean;
 }
 
-export type ItemId = 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport' | 'swap' | 'taxFree' | 'freeze';
+export type ItemId = 'forceBuy' | 'dice' | 'roadblock' | 'shield' | 'doubleToll' | 'demolish' | 'freeBuild' | 'teleport' | 'swap' | 'taxFree' | 'freeze';
 
 export interface Roadblock { tile: number; owner: number }
 
@@ -107,6 +107,8 @@ export interface GameState {
   specials?: boolean;
   /** v1.1：棋盘 id；缺省 = 经典棋盘（旧快照 / 旧回放兼容） */
   board?: BoardId;
+  /** v1.9：收购扩展（地标/观光地/抵押格）、对局商店、强制收购卡稀有掉落；旧快照 / 旧回放无此字段，沿用旧规则 */
+  v19?: boolean;
   /** v0.8：道具抽取池含换位 / 免税 / 冻结；旧快照与旧回放无此字段，沿用 7 种旧池以保证重放一致 */
   itemsV8?: boolean;
   seed: number;
@@ -140,7 +142,9 @@ export type Action =
   /** 掷骰前抵押自己的一处地产，得款 = 已投入总价 × RULES.mortgageRatio */
   | { type: 'mortgage'; tile: number }
   /** 掷骰前赎回抵押中的地产，赎回价 = 抵押得款 × RULES.redeemMult */
-  | { type: 'redeem'; tile: number };
+  | { type: 'redeem'; tile: number }
+  /** v1.9 对局商店：自己回合掷骰阶段用现金购买一张道具（手牌满 / 现金不足拒绝） */
+  | { type: 'buyItem'; item: ItemId };
 
 export type CardId =
   | 'bonus' | 'fine' | 'toStart' | 'island' | 'freeUpgrade' | 'shield'
@@ -166,6 +170,8 @@ export type GameEvent =
   | { t: 'buy'; seat: number; tile: number; lv: number; cost: number }
   | { t: 'upgrade'; seat: number; tile: number; from: number; lv: number; cost: number }
   | { t: 'takeover'; seat: number; from: number; tile: number; cost: number }
+  | { t: 'takeoverShort'; seat: number; tile: number; cost: number; cash: number }
+  | { t: 'shopBuy'; seat: number; item: ItemId; cost: number }
   | { t: 'sell'; seat: number; tile: number; amount: number }
   | { t: 'bankrupt'; seat: number }
   | { t: 'card'; seat: number; card: CardId; text: string }
@@ -197,4 +203,4 @@ export type ApplyResult = ApplyOk | ApplyErr;
 /** accountId：预留给后续业务服的账号标识，引擎与对战服只透传、不校验 */
 export type BotDifficulty = 'easy' | 'normal' | 'hard';
 export interface SeatConfig { id: string; name: string; charId: CharId; isBot?: boolean; accountId?: string; difficulty?: BotDifficulty }
-export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean; /** v0.8 新道具池；缺省 false（旧回放兼容） */ itemsV8?: boolean; /** v1.1 棋盘 id；缺省 = 经典 */ board?: BoardId }
+export interface GameConfig { seed: number; seats: SeatConfig[]; maxRounds?: number; /** v0.7 特殊格；缺省 false（旧回放兼容） */ specials?: boolean; /** v0.8 新道具池；缺省 false（旧回放兼容） */ itemsV8?: boolean; /** v1.9 收购扩展 / 商店 / 强制收购卡；缺省 false（旧回放兼容） */ v19?: boolean; /** v1.1 棋盘 id；缺省 = 经典 */ board?: BoardId }

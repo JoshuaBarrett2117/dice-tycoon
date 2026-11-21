@@ -35,7 +35,7 @@ export class LocalSource implements GameSource {
   private recorder: ReplayRecorder;
 
   constructor(seats: SeatConfig[], board: BoardId = 'classic') {
-    const cfg = { seed: (Math.random() * 2 ** 32) >>> 0, seats, specials: true, itemsV8: true, ...(board !== 'classic' ? { board } : {}) };
+    const cfg = { seed: (Math.random() * 2 ** 32) >>> 0, seats, specials: true, itemsV8: true, v19: true, ...(board !== 'classic' ? { board } : {}) };
     this.state = createGame(cfg);
     this.recorder = new ReplayRecorder(cfg);
   }

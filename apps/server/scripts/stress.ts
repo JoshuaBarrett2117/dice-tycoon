@@ -24,7 +24,7 @@ const t0 = Date.now();
 for (let i = 0; i < GAMES; i++) {
   const seed = (1000 + i * 7919) >>> 0;
   const cfg: GameConfig = {
-    seed, specials: true, itemsV8: true,
+    seed, specials: true, itemsV8: true, v19: true,
     seats: CHARS.map((c, k) => ({ id: `b${k}`, name: `机器人${k}`, charId: c, isBot: true, difficulty: DIFFS[(i + k) % 3] })),
   };
   try {

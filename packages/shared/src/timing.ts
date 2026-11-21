@@ -24,6 +24,8 @@ export const ANIM = {
   buy: 1100,
   upgrade: 1000,
   takeover: 1300,
+  takeoverShort: 900,
+  shopBuy: 400,
   sell: 500,
   bankrupt: 1500,
   card: 1400,

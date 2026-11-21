@@ -5,7 +5,7 @@
  */
 import { BOARD_SIZE, boardOf } from './board';
 import { BOT_DEFAULT_DIFFICULTY, BOT_LEVELS, ZONES } from './config';
-import { applyAction, itemTargets, mortgageValue, redeemCost, tollOf, totalAssets } from './engine';
+import { applyAction, investedValue, itemTargets, mortgageValue, redeemCost, tollOf, totalAssets } from './engine';
 import type { Action, GameState } from './types';
 
 function lv(s: GameState, seat: number) { return BOT_LEVELS[s.seats[seat].difficulty ?? BOT_DEFAULT_DIFFICULTY]; }
@@ -77,6 +77,10 @@ export function preRollAction(s: GameState, seat: number): Action | null {
     let tg = -1, v = 2.9;
     for (const q of itemTargets(s, seat, 'swap')) { const sc = tileScore(s, seat, s.seats[q].pos); if (sc > v) { v = sc; tg = q; } }
     if (tg >= 0) tries.push({ type: 'useItem', item: 'swap', target: tg });
+  }
+  if (has('forceBuy')) {
+    const c = itemTargets(s, seat, 'forceBuy').sort((a, b) => investedValue(s, b) - investedValue(s, a) || a - b)[0];
+    if (c !== undefined) tries.push({ type: 'useItem', item: 'forceBuy', target: c });
   }
   if (has('taxFree') && !p.taxFree && cash >= 250) tries.push({ type: 'useItem', item: 'taxFree' });
   if (has('freeze')) {

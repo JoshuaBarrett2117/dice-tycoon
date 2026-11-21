@@ -181,7 +181,7 @@ export class MatchRoom extends Room {
     const cfg = {
       seed,
       specials: true,
-      itemsV8: true,
+      itemsV8: true, v19: true,
       ...(this.board !== BOARD_DEFAULT ? { board: this.board } : {}),
       seats: this.seats.map((s, i) => ({
         id: s.sessionId ?? `bot-${i}`, name: s.name, charId: s.charId, isBot: s.isBot,

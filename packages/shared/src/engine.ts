@@ -7,7 +7,7 @@
  */
 import { BOARD_SIZE, ISLAND_INDEX, boardOf, isOwnable } from './board';
 import { CHARACTERS } from './characters';
-import { GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, LEGACY_ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
+import { GLOBAL_EVENTS, GLOBAL_EVENT_IDS, ITEM_IDS, ITEM_PRICES, LEGACY_ITEM_IDS, V8_ITEM_IDS, RULES, ZONES, type GlobalEventDef } from './config';
 import { nextFloat, nextInt, pick } from './rng';
 import type {
   Action, AuctionState, ApplyResult, CardId, GameConfig, GameEvent, GameState, ItemId, Pending, PendingOption, PlayerState, TileState, WinReason,
@@ -20,7 +20,13 @@ const emptyTile = (): TileState => ({ owner: null, lv: 0, mortgaged: false });
 const LV_NAME = ['空地', '别墅', '公寓', '酒店', '地标'];
 
 /** 道具抽取池：v0.8 新局 10 种；旧局 / 旧回放 7 种（RNG 序列保持一致） */
-function itemPool(s: GameState): readonly ItemId[] { return s.itemsV8 ? ITEM_IDS : LEGACY_ITEM_IDS; }
+function itemPool(s: GameState): readonly ItemId[] { return s.itemsV8 ? V8_ITEM_IDS : LEGACY_ITEM_IDS; }
+
+/** 随机发牌：v1.9 起有极小概率（RULES.forceBuyChance）抽到强制收购卡；旧局不消耗额外随机数，保证旧回放一致 */
+function drawItem(s: GameState): ItemId {
+  if (s.v19 && nextFloat(s) < RULES.forceBuyChance) return 'forceBuy';
+  return pick(s, itemPool(s));
+}
 
 // ───────────────────────── 创建 ─────────────────────────
 export function createGame(cfg: GameConfig): GameState {
@@ -37,6 +43,7 @@ export function createGame(cfg: GameConfig): GameState {
     ...(cfg.specials ? { specials: true } : {}),
     ...(cfg.board && cfg.board !== 'classic' ? { board: cfg.board } : {}),
     ...(cfg.itemsV8 ? { itemsV8: true } : {}),
+    ...(cfg.v19 ? { v19: true } : {}),
     phase: 'roll', pending: null, festivalTile: null, globalEvent: null, roadblocks: [], winner: null, winReason: null,
   };
   // 开局发牌（走引擎 RNG，保证可回放）
@@ -101,7 +108,8 @@ export function tollOf(s: GameState, i: number): number {
 export function takeoverCost(s: GameState, seat: number, i: number): number {
   const disc = CHARACTERS[s.seats[seat].charId].takeoverDiscount;
   const li = s.seats[seat].liDiscount ? RULES.liSkillTakeover : 1;
-  return Math.round(investedValue(s, i) * RULES.takeoverMult * (1 - disc) * li);
+  const mort = s.v19 && s.tiles[i].mortgaged ? RULES.mortgagedTakeoverMult : 1;
+  return Math.round(investedValue(s, i) * RULES.takeoverMult * (1 - disc) * li * mort);
 }
 
 /** 总资产 = 现金 + 地产投入；抵押中的地产已把得款计入现金，故只计「投入 − 赎回价」的净值，避免重复计算 */
@@ -150,6 +158,9 @@ export function applyAction(state: GameState, seat: number, action: Action): App
     if (err) return { ok: false, error: err };
   } else if (action.type === 'useSkill') {
     const err = useSkill(ctx, seat);
+    if (err) return { ok: false, error: err };
+  } else if (action.type === 'buyItem') {
+    const err = buyItem(ctx, seat, action.item);
     if (err) return { ok: false, error: err };
   } else if (action.type === 'mortgage' || action.type === 'redeem') {
     const err = mortgageAction(ctx, seat, action.type, action.tile);
@@ -250,7 +261,7 @@ function paySalary(ctx: Ctx, seat: number) {
   p.cash += amount;
   ctx.ev.push({ t: 'salary', seat, amount });
   if (p.items.length < RULES.itemMax) {
-    const item = pick(ctx.s, itemPool(ctx.s));
+    const item = drawItem(ctx.s);
     p.items.push(item);
     ctx.ev.push({ t: 'itemGained', seat, item });
   }
@@ -317,21 +328,24 @@ function resolveTile(ctx: Ctx, seat: number): Resolve {
         const opts = upgradeOptions(s, seat, i);
         return opts.length ? { pending: { kind: 'upgrade', seat, tile: i, options: opts } } : {};
       }
-      // 别人的地：抵押中不收费也不可收购；否则付过路费 → 可收购
-      if (t.mortgaged) return {};
+      // 别人的地：旧规则抵押中不收费也不可收购；v1.9 抵押格仍不收过路费但可收购；否则付过路费 → 可收购
+      if (t.mortgaged && !s.v19) return {};
       const owner = t.owner;
-      if (p.shield) {
+      if (t.mortgaged) { /* v1.9：抵押格不收过路费，也不消耗护盾 */ }
+      else if (p.shield) {
         p.shield = false;
         ctx.ev.push({ t: 'shieldUsed', seat, tile: i });
       } else {
         pay(ctx, seat, owner, tollOf(s, i), i, 'toll');
         if (p.bankrupt) return {};
       }
-      if (d.kind === 'city' && t.lv < 4) {
+      if (s.v19 || (d.kind === 'city' && t.lv < 4)) {
         const cost = takeoverCost(s, seat, i);
         if (cost <= p.cash) {
-          return { pending: { kind: 'takeover', seat, tile: i, options: [{ value: 1, cost, label: `收购 ${d.name}` }] } };
+          return { pending: { kind: 'takeover', seat, tile: i, options: [{ value: 1, cost, label: `收购 ${d.name}${t.mortgaged ? '（抵押中）' : ''}` }] } };
         }
+        // v1.9：现金不足时明确提示，而不是悄悄不出现
+        if (s.v19) ctx.ev.push({ t: 'takeoverShort', seat, tile: i, cost, cash: p.cash });
       }
       return {};
     }
@@ -419,7 +433,7 @@ function drawCard(ctx: Ctx, seat: number): Resolve {
     }
     case 'itemSupply':
       if (p.items.length < RULES.itemMax) {
-        const item = pick(s, itemPool(s));
+        const item = drawItem(s);
         p.items.push(item);
         ctx.ev.push({ t: 'itemGained', seat, item });
       } else { p.cash += RULES.itemSupplyCash; ctx.ev.push({ t: 'bonus', seat, amount: RULES.itemSupplyCash }); }
@@ -470,12 +484,14 @@ function goBankrupt(ctx: Ctx, seat: number) {
 }
 
 // ───────────────────────── 道具与技能 ─────────────────────────
-const TARGETED: ItemId[] = ['dice', 'roadblock', 'demolish', 'freeBuild', 'teleport', 'swap', 'freeze'];
+const TARGETED: ItemId[] = ['forceBuy', 'dice', 'roadblock', 'demolish', 'freeBuild', 'teleport', 'swap', 'freeze'];
 
 /** 可选目标（dice 为总点数；其余为格子序号） */
 export function itemTargets(s: GameState, seat: number, item: ItemId): number[] {
   const p = s.seats[seat];
   switch (item) {
+    case 'forceBuy':
+      return s.tiles.map((t, i) => (t.owner != null && t.owner !== seat && !s.seats[t.owner].bankrupt && isOwnable(i, boardOf(s).tiles) ? i : -1)).filter((i) => i >= 0);
     case 'dice': return [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     case 'roadblock': {
       const out: number[] = [];
@@ -501,6 +517,7 @@ function upgradableCities(s: GameState, seat: number) {
 
 function itemLabel(s: GameState, item: ItemId, v: number): string {
   if (item === 'dice') return `指定点数 ${v}`;
+  if (item === 'forceBuy') return `${boardOf(s).tiles[v].name}（${s.seats[s.tiles[v].owner!].name}）`;
   if (item === 'swap' || item === 'freeze') return s.seats[v].name;
   return boardOf(s).tiles[v].name;
 }
@@ -508,7 +525,7 @@ function itemLabel(s: GameState, item: ItemId, v: number): string {
 function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string | null {
   const s = ctx.s, p = s.seats[seat];
   if (s.phase !== 'roll') return '当前不能使用道具';
-  if (!(ITEM_IDS as readonly string[]).includes(item)) return '未知道具';
+  if (!(ITEM_IDS as readonly string[]).includes(item) || (item === 'forceBuy' && !s.v19)) return '未知道具';
   if (p.items.indexOf(item) < 0) return '你没有这张道具';
   if (item === 'teleport' && p.islandTurns > 0) return '在无人岛上无法传送';
   if (item === 'swap' && p.islandTurns > 0) return '在无人岛上无法换位';
@@ -529,6 +546,13 @@ function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string 
   p.items.splice(p.items.indexOf(item), 1);
   ctx.ev.push({ t: 'itemUsed', seat, item, target: target ?? null });
   switch (item) {
+    case 'forceBuy': {
+      const t = s.tiles[target!], from = t.owner!;
+      t.owner = seat; // 建筑等级与抵押状态原样保留；卡本身即对价，不另付钱
+      ctx.ev.push({ t: 'takeover', seat, from, tile: target!, cost: 0 });
+      checkWin(ctx);
+      break;
+    }
     case 'dice': p.forcedSum = target!; break;
     case 'roadblock':
       s.roadblocks.push({ tile: target!, owner: seat });
@@ -567,6 +591,22 @@ function useItem(ctx: Ctx, seat: number, item: ItemId, target?: number): string 
       break;
     }
   }
+  return null;
+}
+
+/** v1.9 对局商店：自己回合掷骰阶段，用现金购买一张道具 */
+function buyItem(ctx: Ctx, seat: number, item: ItemId): string | null {
+  const s = ctx.s, p = s.seats[seat];
+  if (!s.v19) return '本局没有商店';
+  if (s.phase !== 'roll') return '当前不能使用商店';
+  if (!(ITEM_IDS as readonly string[]).includes(item)) return '未知道具';
+  if (p.items.length >= RULES.itemMax) return '手牌已满';
+  const cost = ITEM_PRICES[item];
+  if (p.cash < cost) return `现金不足，需要 ¥${cost} 万`;
+  p.cash -= cost;
+  p.items.push(item);
+  ctx.ev.push({ t: 'shopBuy', seat, item, cost });
+  ctx.ev.push({ t: 'itemGained', seat, item });
   return null;
 }
 

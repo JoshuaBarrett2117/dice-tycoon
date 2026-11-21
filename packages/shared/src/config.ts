@@ -78,6 +78,12 @@ export const RULES = {
   mortgageRatio: 0.5,
   /** 赎回价 = 抵押得款 × 此倍数 */
   redeemMult: 1.1,
+
+  // ── v1.9（提案值）──
+  /** 收购他人已抵押的格子：收购价 = 常规收购价 × 此折扣（抵押状态与赎回责任一并转给买家；卖家已拿过抵押款，收购价全额归卖家） */
+  mortgagedTakeoverMult: 0.7,
+  /** 道具补给 / 过起点发牌时，抽到强制收购卡的概率（其余按 10 种常规道具均匀抽取）；开局发牌不会出强制收购卡 */
+  forceBuyChance: 0.01,
 } as const;
 
 /**
@@ -127,8 +133,10 @@ export function zoneOfSum(sum: number): number {
 
 /** v0.8 之前的 7 种旧抽取池（旧回放按此重放） */
 export const LEGACY_ITEM_IDS = ['dice', 'roadblock', 'shield', 'doubleToll', 'demolish', 'freeBuild', 'teleport'] as const;
-export const ITEM_IDS = [...LEGACY_ITEM_IDS, 'swap', 'taxFree', 'freeze'] as const;
+export const V8_ITEM_IDS = [...LEGACY_ITEM_IDS, 'swap', 'taxFree', 'freeze'] as const;
+export const ITEM_IDS = [...V8_ITEM_IDS, 'forceBuy'] as const;
 export const ITEMS: Record<(typeof ITEM_IDS)[number], { name: string; desc: string }> = {
+  forceBuy: { name: '强制收购卡', desc: '指定一处对手的城市 / 观光地（含地标、抵押格）直接收归己有，建筑等级与抵押状态保留；卡即对价，不另付钱' },
   dice: { name: '遥控骰子', desc: '本次掷骰指定总点数 2–12' },
   roadblock: { name: '路障卡', desc: '在前方 8 格内放置路障，其他玩家经过时被拦停' },
   shield: { name: '护盾卡', desc: '下次过路费全免' },
@@ -139,6 +147,11 @@ export const ITEMS: Record<(typeof ITEM_IDS)[number], { name: string; desc: stri
   swap: { name: '换位卡', desc: '与指定一名玩家交换位置，你在新位置结算落地（不领月薪）' },
   taxFree: { name: '免税卡', desc: '下次停在税务局时免缴税费（仅一次）' },
   freeze: { name: '冻结卡', desc: '指定一名对手：其下回合不能掷骰，整回合跳过' },
+};
+
+/** v1.9 对局商店售价（万，全部为提案值；强制收购卡 200 万由需求指定） */
+export const ITEM_PRICES: Record<(typeof ITEM_IDS)[number], number> = {
+  dice: 20, roadblock: 15, shield: 25, doubleToll: 30, demolish: 40, freeBuild: 45, teleport: 35, swap: 30, taxFree: 20, freeze: 35, forceBuy: 200,
 };
 
 // ── v0.3：观战 / 快速匹配 / 回放播放器（均为提案值）──
