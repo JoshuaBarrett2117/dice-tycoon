@@ -8,6 +8,7 @@ export * from './bot';
 export * from './protocol';
 export * from './timing';
 export * from './replay';
+export * from './gamelog';
 export * from './matchmaking';
 export * from './profile';
 export * from './quests';

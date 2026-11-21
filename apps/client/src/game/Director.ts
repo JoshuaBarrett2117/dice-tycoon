@@ -3,7 +3,7 @@
  * 播完后以权威快照校正画面，再根据状态决定是否等待本地玩家输入。
  */
 import {
-  BOARD_SIZE, boardOf, CHARACTERS, ITEMS, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
+  BOARD_SIZE, boardOf, CHARACTERS, ITEMS, ITEM_PRICES, ITEM_IDS, RULES, logOf, GROUP_COLOR, GROUPS, TURN_TIMEOUT_MS, ZONES,
   actorOf, controlOf, investedValue, mortgageValue, redeemCost, tollOf, totalAssets,
   GLOBAL_EVENTS,
   type Action, type GameEvent, type GameRecord, type GameState, type ItemId, type Pending, type WinReason,
@@ -32,6 +32,7 @@ export class Director {
   private latest: SyncMsg | null = null;
   private preview: { destroy(): void }[] = [];
 
+  private logRound = 1;
   private pendingJump: GameState | null = null;
   private abort = false;
 
@@ -110,6 +111,8 @@ export class Director {
     })), s.seats.map((p) => p.cash));
     this.hud.setRound(s.round, s.maxRounds);
     this.hud.setGlobalEvent(s.globalEvent?.id ?? null);
+    this.logRound = s.round;
+    this.hud.resetLog(s.seats.map((p) => p.name));
     this.layout(false);
     s.seats.forEach((_, i) => this.hud.setProps(i, this.propsOf(s, i)));
   }
@@ -150,6 +153,7 @@ export class Director {
       items: me.items.map((id) => ({ id, name: ITEMS[id].name, desc: ITEMS[id].desc })),
       skill: me.bankrupt ? null : { name: def.active.name, desc: def.active.desc, cd: me.skillCd, charId: me.charId },
       extras: this.extraActs(s, press),
+      ...(s.v19 && !me.bankrupt ? { shop: { on: () => this.openShop(s, press) } } : {}),
       onItem: (id) => press({ type: 'useItem', item: id as ItemId }),
       onSkill: () => press({ type: 'useSkill' }),
     });
@@ -176,6 +180,16 @@ export class Director {
     }];
   }
 
+  /** v1.9 对局商店：列出 11 种道具与售价，手牌满 / 现金不足置灰并写明原因 */
+  private openShop(s: GameState, press: (a: Action) => void) {
+    const me = s.seats[this.me];
+    this.hud.showShop(ITEM_IDS.map((id) => {
+      const price = ITEM_PRICES[id];
+      const why = me.items.length >= RULES.itemMax ? '手牌已满' : me.cash < price ? '现金不足' : '';
+      return { id, name: ITEMS[id].name, desc: ITEMS[id].desc, price, can: !why, why, go: () => press({ type: 'buyItem', item: id }) };
+    }), me.cash);
+  }
+
   private propsOf(s: GameState, seat: number) { return s.tiles.filter((t) => t.owner === seat).length; }
   private layout(animate: boolean) {
     const vm = this.vm!;
@@ -195,6 +209,9 @@ export class Director {
   // ───────────────────────── 事件演出 ─────────────────────────
   private async play(e: GameEvent) {
     const vm = this.vm!, W = this.world, H = this.hud;
+    if (e.t === 'turn') this.logRound = e.round;
+    const lg = logOf(vm, e, this.logRound);
+    if (lg) H.addLog(lg);
     switch (e.t) {
       case 'turn': {
         vm.turn = e.seat; vm.round = e.round;
@@ -353,6 +370,16 @@ export class Director {
         vm.seats[e.seat].flyNext = true;
         H.toast('环球航班：下回合可飞往任意格', GRAD.green);
         await sleep(900);
+        break;
+      case 'takeoverShort':
+        H.toast(`现金不足，无法收购 ${this.bd[e.tile].name}（需 ¥${e.cost} 万，现有 ¥${e.cash} 万）`, GRAD.gray);
+        await sleep(900);
+        break;
+      case 'shopBuy':
+        AU.play('cash');
+        this.addCash(e.seat, -e.cost);
+        H.toast(`${vm.seats[e.seat].name} 在商店购买了 ${ITEMS[e.item].name}`, GRAD.green);
+        await sleep(300);
         break;
       case 'itemGained':
         H.toast(`获得道具：${ITEMS[e.item].name}`, GRAD.green);

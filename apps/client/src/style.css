@@ -675,3 +675,30 @@ button { font-family: inherit; }
 #netban .nb.ok { border-color: #16a34a; color: #16a34a; }
 #netban .nb.lost { flex-direction: column; padding: 22px 34px; gap: 8px; font-size: 20px; }
 #netban .nb.lost .gi { width: 40px; height: 40px; color: #e11d48; }
+
+/* ── v1.9 技能栏 / 道具栏分栏、缩小图标、商店、日志面板 ── */
+#acts { flex-direction: column; align-items: center; gap: 4px; bottom: 6px; }
+#acts .bar { display: flex; gap: 5px; align-items: center; }
+#acts .bar .bl { font-style: normal; font-size: 10px; font-weight: 900; color: #fff; background: rgba(25,35,80,.72); border-radius: 8px; padding: 2px 5px; writing-mode: horizontal-tb; }
+#acts .act, #acts .act:not(.cd) { min-width: 52px; max-width: 78px; height: 46px; padding: 2px 4px; border-radius: 12px; border-width: 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1px; position: relative; }
+#acts .act .ic { width: 26px; height: 26px; grid-row: auto; margin: 0; }
+#acts .act b { font-size: 10px; max-width: 72px; line-height: 1.1; }
+#acts .act em { position: absolute; top: -6px; right: -4px; font-style: normal; font-size: 9px; font-weight: 900; background: #1e293b; color: #fff; border-radius: 8px; padding: 0 4px; }
+#acts .act.extra { grid-template-columns: none; }
+#props .pn.shop { width: 520px; }
+#props .pr .ic { flex: none; }
+#props .pr .ic + b { width: 92px; }
+#props .shop .pr span { font-size: 11px; }
+#props .shop .pr button { min-width: 64px; }
+#logbtn { position: absolute; left: 10px; top: 52px; z-index: 6; display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px 0 5px; border-radius: 12px; border: 2px solid rgba(255,255,255,.7); background: rgba(25,35,80,.78); color: #fff; font-size: 12px; font-weight: 900; cursor: pointer; }
+#logp { position: absolute; left: 10px; top: 90px; width: 300px; max-height: 420px; z-index: 30; display: none; flex-direction: column; gap: 5px; padding: 8px; border-radius: 16px; background: rgba(20,28,64,.93); border: 3px solid #fff; color: #fff; }
+#logp.show { display: flex; }
+#logp .lh { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 900; } #logp .lh small { opacity: .7; font-size: 11px; flex: 1; }
+#logp .x { width: 26px; height: 26px; border-radius: 8px; border: 2px solid #fff; background: transparent; color: #fff; cursor: pointer; font-weight: 900; }
+#logp .lf { display: flex; flex-wrap: wrap; gap: 4px; } #logp .lf button { height: 22px; padding: 0 7px; border-radius: 8px; border: 1px solid rgba(255,255,255,.45); background: transparent; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
+#logp .lf button.on { background: #ffcf2e; color: #3a2a00; border-color: #ffcf2e; }
+#logp .ll { overflow-y: auto; max-height: 290px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 600; line-height: 1.35; }
+#logp .lt { margin-top: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,.15); font-weight: 900; }
+#logp .lr em { font-style: normal; opacity: .55; margin-right: 4px; } #logp .lr b { color: #ffe14a; margin-right: 4px; }
+#logp .lr.c-trade b { color: #7cff6b; } #logp .lr.c-money b { color: #7fd8ff; } #logp .lr.c-auction b { color: #ffa6f0; }
+#logp .le { opacity: .6; text-align: center; padding: 10px; }

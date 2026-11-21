@@ -1,6 +1,6 @@
 /** DOM 版 HUD：头像芯片、掷骰键与蓄力条、骰子、提示条、选择面板、金币飞行、结算页 */
 import { icon } from './icons';
-import { GLOBAL_EVENTS, ZONES, zoneOfPower, type GlobalEventId, type Pending } from '@dt/shared';
+import { GLOBAL_EVENTS, LOG_CATS, ZONES, zoneOfPower, type GlobalEventId, type LogCat, type LogEntry, type Pending } from '@dt/shared';
 import { AU } from '../audio/audio';
 import { diceSkin } from '../cosmetics';
 import { sleep } from '../core/tween';
@@ -25,7 +25,9 @@ export interface ActsSpec {
   enabled: boolean;
   items: { id: string; name: string; desc: string }[];
   skill: { name: string; desc: string; cd: number; charId?: string } | null;
-  extras: { label: string; title: string; on: () => void }[];
+  extras: { label: string; title: string; on: () => void; icon?: string }[];
+  /** v1.9 对局商店入口（缺省 = 本局没有商店） */
+  shop?: { on: () => void };
   onItem: (id: string) => void;
   onSkill: () => void;
 }
@@ -65,6 +67,7 @@ export class Hud {
         <div id="gbanner"></div>
         <div id="acts"></div>
         <div id="props"></div>
+        <button id="logbtn" title="对局日志（可收起 / 展开）"></button><div id="logp"></div>
         <div id="chips"></div>
         <div id="sheet"><div class="rib st2"></div><div class="kind"></div><div class="bimg"><img alt=""></div><div class="info"></div><div class="opts"></div><div class="tbar"><i></i></div><button class="bt no">放 弃</button></div>
         <div id="fx"></div>
@@ -77,6 +80,8 @@ export class Hud {
       g.appendChild(d);
     });
     g.insertAdjacentHTML('beforeend', '<div id="gneedle"></div>');
+    const lb = $(stage, '#logbtn'); lb.innerHTML = `${icon('log', 22)}<b>日志</b>`;
+    lb.onclick = (e) => { e.stopPropagation(); this.toggleLog(); };
     $(stage, '#bm').onclick = (e) => { e.stopPropagation(); $(stage, '#bm').classList.toggle('off', !AU.toggleMusic()); };
     $(stage, '#bs').onclick = (e) => { e.stopPropagation(); $(stage, '#bs').classList.toggle('off', !AU.toggleSfx()); };
     this.showGauge(false);
@@ -152,18 +157,75 @@ export class Hud {
   setActs(spec: ActsSpec | null) {
     const box = $(this.stage, '#acts');
     box.innerHTML = '';
-    if (!spec || (!spec.items.length && !spec.skill && !spec.extras.length)) { box.classList.remove('show'); return; }
+    if (!spec || (!spec.items.length && !spec.skill && !spec.extras.length && !spec.shop)) { box.classList.remove('show'); return; }
     box.classList.add('show'); box.classList.toggle('off', !spec.enabled);
-    const mk = (cls: string, html: string, title: string, on: () => void, dis = false) => {
+    // v1.9：道具栏与技能栏分成两个独立栏（图标 26px、按钮 52×46），都贴在底部中间，不遮挡棋盘与掷骰按钮
+    const bar = (cls: string, label: string) => {
+      const r = document.createElement('div'); r.className = 'bar ' + cls;
+      r.innerHTML = `<i class="bl">${label}</i>`; box.appendChild(r); return r;
+    };
+    const mk = (row: HTMLElement, cls: string, html: string, title: string, on: () => void, dis = false) => {
       const b = document.createElement('button');
       b.className = 'act ' + cls + (dis ? ' cd' : ''); b.innerHTML = html; b.title = title;
       b.onclick = (e) => { e.stopPropagation(); if (dis || !spec.enabled) return; AU.unlock(); AU.play('click'); on(); };
-      box.appendChild(b);
+      row.appendChild(b);
     };
-    spec.items.forEach((it) => mk('item', `${icon(it.id)}<b>${esc(it.name)}</b><small>${esc(it.desc)}</small>`, it.desc, () => spec.onItem(it.id)));
-    if (spec.skill) mk('skill', `${icon(spec.skill.charId ?? 'skill')}<b>${esc(spec.skill.name)}</b><small>${spec.skill.cd > 0 ? `冷却 ${spec.skill.cd} 回合` : '可用'}</small>`, spec.skill.desc, spec.onSkill, spec.skill.cd > 0);
-    spec.extras.forEach((x) => mk('extra', `<b>${esc(x.label)}</b>`, x.title, x.on));
+    const itemBar = bar('items', '道具');
+    spec.items.forEach((it) => mk(itemBar, 'item', `${icon(it.id)}<b>${esc(it.name)}</b>`, `${it.name}：${it.desc}`, () => spec.onItem(it.id)));
+    if (spec.shop) mk(itemBar, 'extra', `${icon('shop')}<b>商店</b>`, '用现金购买道具（手牌上限 3）', spec.shop.on);
+    if (!spec.items.length && !spec.shop) itemBar.remove();
+    if (spec.skill || spec.extras.length) {
+      const skillBar = bar('skills', '技能');
+      if (spec.skill) mk(skillBar, 'skill', `${icon(spec.skill.charId ?? 'skill')}<b>${esc(spec.skill.name)}</b>${spec.skill.cd > 0 ? `<em>冷却${spec.skill.cd}</em>` : ''}`, `${spec.skill.name}：${spec.skill.desc}`, spec.onSkill, spec.skill.cd > 0);
+      spec.extras.forEach((x) => mk(skillBar, 'extra', `${icon(x.icon ?? 'props')}<b>${esc(x.label)}</b>`, x.title, x.on));
+    }
   }
+
+  /** v1.9 对局商店面板（复用地产面板的浮层） */
+  showShop(rows: { id: string; name: string; desc: string; price: number; can: boolean; why: string; go: () => void }[], cash: number) {
+    const box = $(this.stage, '#props');
+    const close = () => { box.classList.remove('show'); box.innerHTML = ''; };
+    box.innerHTML = `<div class="pn shop"><div class="ph">对局商店 · 现金 ¥${cash} 万<button class="x">✕</button></div><div class="pl"></div><div class="pf">自己回合掷骰前可购买；手牌上限 3，满了不能买；机器人不使用商店</div></div>`;
+    const list = $(box, '.pl');
+    rows.forEach((r) => {
+      const d = document.createElement('div');
+      d.className = 'pr';
+      d.innerHTML = `${icon(r.id, 30)}<b>${esc(r.name)}</b><span>${esc(r.desc)}</span>`;
+      const b = document.createElement('button');
+      b.textContent = r.can ? `¥${r.price}万` : r.why; b.disabled = !r.can; b.title = r.can ? `购买 ${r.name}` : r.why;
+      b.onclick = (e) => { e.stopPropagation(); close(); r.go(); };
+      d.appendChild(b);
+      list.appendChild(d);
+    });
+    $(box, '.x').onclick = (e) => { e.stopPropagation(); close(); };
+    box.classList.add('show');
+  }
+
+  // ───────────────────────── v1.9 对局日志面板 ─────────────────────────
+  private logs: LogEntry[] = [];
+  private logSeat = -1;
+  private logCat: LogCat | 'all' = 'all';
+  private logNames: string[] = [];
+  private logOpen = false;
+  resetLog(names: string[]) { this.logs = []; this.logNames = names; this.logSeat = -1; this.logCat = 'all'; this.renderLog(); }
+  addLog(l: LogEntry) { this.logs.push(l); if (this.logs.length > 3000) this.logs.shift(); if (this.logOpen) this.renderLog(); }
+  private renderLog() {
+    const el = $(this.stage, '#logp');
+    el.classList.toggle('show', this.logOpen);
+    if (!this.logOpen) return;
+    const seatBtns = [{ id: -1, name: '全部玩家' }, ...this.logNames.map((n, i) => ({ id: i, name: n }))];
+    const catBtns: { id: LogCat | 'all'; name: string }[] = [{ id: 'all', name: '全部' }, ...LOG_CATS];
+    const rows = this.logs.filter((l) => (l.cat === 'turn' ? this.logCat === 'all' && this.logSeat < 0 : (this.logSeat < 0 || l.seat === this.logSeat) && (this.logCat === 'all' || l.cat === this.logCat)));
+    el.innerHTML = `<div class="lh">对局日志 <small>${rows.length}/${this.logs.length}</small><button class="x">✕</button></div>
+      <div class="lf">${seatBtns.map((b) => `<button data-s="${b.id}" class="${b.id === this.logSeat ? 'on' : ''}">${esc(b.name)}</button>`).join('')}</div>
+      <div class="lf">${catBtns.map((b) => `<button data-c="${b.id}" class="${b.id === this.logCat ? 'on' : ''}">${b.name}</button>`).join('')}</div>
+      <div class="ll">${rows.map((l) => l.cat === 'turn' ? `<div class="lt">第 ${l.round} 回合 · ${esc(l.text)}</div>` : `<div class="lr c-${l.cat}"><em>R${l.round}</em><b>${l.seat >= 0 ? esc(this.logNames[l.seat] ?? '') : '全局'}</b>${esc(l.text)}</div>`).join('') || '<div class="le">暂无记录</div>'}</div>`;
+    const ll = $(el, '.ll'); ll.scrollTop = ll.scrollHeight;
+    $(el, '.x').onclick = (e) => { e.stopPropagation(); this.toggleLog(false); };
+    el.querySelectorAll<HTMLElement>('[data-s]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); this.logSeat = Number(b.dataset.s); this.renderLog(); }; });
+    el.querySelectorAll<HTMLElement>('[data-c]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); this.logCat = b.dataset.c as LogCat | 'all'; this.renderLog(); }; });
+  }
+  toggleLog(open?: boolean) { this.logOpen = open ?? !this.logOpen; this.renderLog(); }
 
   /** 我的地产面板：抵押 / 赎回入口 */
   showProps(rows: { name: string; info: string; action: string; can: boolean; mortgaged: boolean; go: () => void }[]) {

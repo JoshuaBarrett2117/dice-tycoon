@@ -149,3 +149,27 @@ describe('v1.9 回放与事件完整性', () => {
     expect(out.state.winner).toBe(s.winner);
   });
 });
+
+import { logOf, LOG_CATS } from '../src';
+describe('v1.9 对局日志', () => {
+  it('整局事件逐条可翻译，仅 move/prompt/decline 不记；带玩家与回合，覆盖各类别', () => {
+    const cats = new Set<string>(); const missing = new Set<string>();
+    for (const seed of [5, 6, 7, 8, 9, 10]) {
+    const cfg = { seed, seats: SEATS.map((x) => ({ ...x, isBot: true })), specials: true, itemsV8: true, v19: true };
+    let s = createGame(cfg); let round = 1; let steps = 0;
+    while (s.phase !== 'ended' && steps < 5000) {
+      const who = actorOf(s); const r = ok(s, who, botAction(s, who));
+      for (const e of r.events) {
+        if (e.t === 'turn') round = e.round;
+        const l = logOf(s, e, round);
+        if (!l) { if (!['move', 'prompt', 'decline'].includes(e.t)) missing.add(e.t); continue; }
+        expect(l.text.length).toBeGreaterThan(0); expect(l.round).toBeGreaterThanOrEqual(1);
+        cats.add(l.cat);
+      }
+      s = r.state; steps++;
+    }
+    }
+    expect([...missing]).toEqual([]);
+    for (const c of LOG_CATS) expect(cats.has(c.id)).toBe(true);
+  });
+});
