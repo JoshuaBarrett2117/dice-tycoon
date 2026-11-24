@@ -9,6 +9,30 @@ import { BOARD_SIZE, boardOf, GROUP_COLOR, THEMES, THEME_DEFAULT, type ThemeId, 
 import { A, B, BASEH, CW, GEO, OX, OY, P, S, TH, W, ZT, buildingAnchor, tileCorners, tokenAnchor } from './iso';
 import { ease, hexNum, shade, tween } from '../core/tween';
 import { Token } from './Token';
+import { diceSkin } from '../cosmetics';
+
+/** 3D 骰子模块（@pixi/3d）按需加载：独立分包，必须在 app.init 之前加载完以注册 3D 后端；失败 / 超时则整局用 2D 骰子 */
+type Dice3DMod = typeof import('./Dice3D');
+let dice3dMod: Promise<Dice3DMod | null> | null = null;
+/** @pixi/3d 需要 WebGL2：只支持 WebGL1 的设备（如老 iOS）若加载了 3D 扩展，app.init 会直接抛错，所以加载前先探测 */
+function hasWebGL2(): boolean {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2');
+    (gl?.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
+    return !!gl;
+  } catch { return false; }
+}
+function loadDice3D(): Promise<Dice3DMod | null> {
+  if (!dice3dMod && !hasWebGL2()) dice3dMod = Promise.resolve(null);
+  dice3dMod ??= Promise.race([
+    import('./Dice3D'),
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+  ]).catch((e) => { console.warn('[dice3d] unavailable, using 2D dice', e); return null; });
+  return dice3dMod;
+}
+/** HUD 掷骰时调用的 3D 骰子接口（HUD 不直接依赖 @pixi/3d） */
+export interface DiceRoller { roll(a: number, b: number, skin: string | null, onLand?: () => void): Promise<void> }
 
 const FONT = '"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
 const CORNER_TINT: Record<string, string> = { start: '#ffe69a', island: '#a8e3ff', festival: '#ffc9e4', airport: '#c9efc0' };
@@ -49,7 +73,11 @@ export class World {
     if (this.lastState && this.decor.length) this.buildBoard(this.lastState);
   }
 
+  /** v1.10 真 3D 骰子；null = 不支持 / 加载失败，HUD 用 2D 骰子 */
+  dice3d: DiceRoller | null = null;
+
   async init(host: HTMLElement) {
+    const D3 = new URLSearchParams(location.search).has('dice2d') ? null : await loadDice3D();
     await this.app.init({ width: 1280, height: 720, backgroundAlpha: 0, antialias: true, resolution: this.res(), autoDensity: true });
     host.prepend(this.app.canvas);
     const base = import.meta.env.BASE_URL + 'assets/';
@@ -67,6 +95,15 @@ export class World {
     this.objs.sortableChildren = true;
     this.root.addChild(bg, this.boardG, this.ground, this.objs);
     addEventListener('resize', () => this.onResize());
+    if (D3) {
+      // 开发模式下暴露给截图脚本冻结骰子时钟（生产构建会剔除）
+      if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__dtDice3D = D3.Dice3D;
+      try {
+        const d = D3.Dice3D.create(this.app);
+        if (d && d.warm(diceSkin())) this.dice3d = d;
+        else d?.destroy();
+      } catch (e) { console.warn('[dice3d] init failed', e); }
+    }
   }
 
   private res() {

@@ -56,7 +56,7 @@ async function boot() {
 }
 
 // ───────────────────────── 主菜单 ─────────────────────────
-export const VERSION = 'v1.8';
+export const VERSION = 'v1.10';
 /** 付费角色需登录且已购才可选；免费角色恒可选 */
 const charUnlocked = (c: CharId) => !PAID_CHAR_IDS.includes(c) || A.ownedChars.has(c);
 function charCards() {
@@ -550,6 +550,7 @@ async function startGame(src: GameSource, kind?: 'solo' | 'online') {
   await worldReady;
   document.body.classList.add('ingame');
   const hud = new Hud(stage);
+  hud.dice3d = world!.dice3d;
   if (src instanceof NetSource) watchNet(src, () => showMenu('与对战服的连接已断开'));
   let unmountBar: (() => void) | null = null;
   const exit = () => { unmountBar?.(); showMenu(); };

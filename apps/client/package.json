@@ -12,7 +12,8 @@
   "dependencies": {
     "@colyseus/sdk": "^0.18.0",
     "@dt/shared": "*",
-    "pixi.js": "^8.10.0"
+    "@pixi/3d": "^0.1.0",
+    "pixi.js": "^8.23.0"
   },
   "devDependencies": {
     "typescript": "~5.9.0",

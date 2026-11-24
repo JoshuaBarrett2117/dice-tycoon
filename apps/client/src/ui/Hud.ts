@@ -360,9 +360,16 @@ export class Hud {
     });
   }
 
+  /** v1.10 3D 骰子（由世界层提供；null 用下面的 2D 骰子） */
+  dice3d: { roll(a: number, b: number, skin: string | null, onLand?: () => void): Promise<void> } | null = null;
+
   async rollDice(a: number, b: number) {
     this.hideRoll();
     AU.play('dice');
+    if (this.dice3d) {
+      try { await this.dice3d.roll(a, b, diceSkin(), () => AU.play('diceLand')); return; }
+      catch (e) { console.warn('[dice3d] roll failed, falling back to 2D', e); this.dice3d = null; }
+    }
     const d = $(this.stage, '#dice'), d1 = $(this.stage, '#d1'), d2 = $(this.stage, '#d2');
     d.className = diceSkin() ? `dk-${diceSkin()}` : '';
     d.style.display = 'block';
