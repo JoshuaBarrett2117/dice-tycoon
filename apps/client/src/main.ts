@@ -56,7 +56,7 @@ async function boot() {
 }
 
 // ───────────────────────── 主菜单 ─────────────────────────
-export const VERSION = 'v1.10';
+export const VERSION = 'v1.11';
 /** 付费角色需登录且已购才可选；免费角色恒可选 */
 const charUnlocked = (c: CharId) => !PAID_CHAR_IDS.includes(c) || A.ownedChars.has(c);
 function charCards() {
