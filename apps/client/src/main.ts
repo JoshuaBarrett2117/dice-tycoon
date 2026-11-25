@@ -227,7 +227,7 @@ function renderAccount(o: HTMLElement, acc: A.AccountView, info: A.ShopInfo | nu
   const cats = (info?.categories || []).filter((c) => c.items.length);
   if (!cats.find((c) => c.id === shopCat) && cats[0]) shopCat = cats[0].id;
   const all = cats.flatMap((c) => c.items);
-  const names = (id: string) => (id === 'dice_classic' ? '经典骰子' : all.find((i) => i.id === id)?.name || id);
+  const names = (id: string) => (id === 'dice_classic' ? '白玉金边骰子' : all.find((i) => i.id === id)?.name || id);
   const tr = info?.train ?? { cost: 50, exp: 40, expPerLevel: 100, maxLevel: 20 };
 
   const card = (i: A.Cosmetic | { id: string; kind: string; name: string; price: number; char?: string }, free = false) => {
@@ -248,7 +248,7 @@ function renderAccount(o: HTMLElement, acc: A.AccountView, info: A.ShopInfo | nu
   };
   const curCat = cats.find((c) => c.id === shopCat);
   const shopGrid = !cats.length ? `<div class="empty">${K.img(charPng('panda'), '', '')}<b>商城暂无在售商品</b><span>新品上架后会出现在这里</span></div>`
-    : `<div class="pgrid">${shopCat === 'dice' ? card({ id: 'dice_classic', kind: 'dice', name: '经典骰子', price: 0 }, true) : ''}${(curCat?.items || []).map((i) => card(i)).join('')}${shopCat === 'char' ? `<div class="pcard soon"><div class="pimg"><span class="qm">?</span></div><div class="pname">新角色筹备中</div><div class="psub">更多付费角色即将上架</div><div class="pfoot"><span class="free">敬请期待</span></div></div>` : ''}</div>`;
+    : `<div class="pgrid">${shopCat === 'dice' ? card({ id: 'dice_classic', kind: 'dice', name: '白玉金边骰子', price: 0 }, true) : ''}${(curCat?.items || []).map((i) => card(i)).join('')}${shopCat === 'char' ? `<div class="pcard soon"><div class="pimg"><span class="qm">?</span></div><div class="pname">新角色筹备中</div><div class="psub">更多付费角色即将上架</div><div class="pfoot"><span class="free">敬请期待</span></div></div>` : ''}</div>`;
   const trainGrid = `<div class="tgrid">${CHAR_IDS.map((c) => {
     const p = acc.chars[c] || { exp: 0, level: 1 };
     const locked = !(!PAID_CHAR_IDS.includes(c) || own.has('char_' + c));

@@ -38,9 +38,9 @@ func buildCatalog() []Cosmetic {
 		c = append(c, Cosmetic{ID: "skin_" + ch, Kind: KindSkin, Name: charNames[ch] + "·幻彩外观", Price: prices[ch], Char: ch})
 	}
 	c = append(c,
-		Cosmetic{ID: "dice_neon", Kind: KindDice, Name: "霓虹骰子", Price: 120},
-		Cosmetic{ID: "dice_island", Kind: KindDice, Name: "海岛骰子", Price: 150},
-		Cosmetic{ID: "dice_gold", Kind: KindDice, Name: "鎏金骰子", Price: 200},
+		Cosmetic{ID: "dice_neon", Kind: KindDice, Name: "幻彩水晶骰子", Price: 120},
+		Cosmetic{ID: "dice_island", Kind: KindDice, Name: "海蓝糖果骰子", Price: 150},
+		Cosmetic{ID: "dice_gold", Kind: KindDice, Name: "宝石金骰子", Price: 200},
 	)
 	return c
 }
